@@ -99,6 +99,9 @@ class WorkspacesRunnerTest {
 
   private static final String WORKSPACE_IMAGE = "registry.example:5000/qits/workspace:2026.1004.1";
 
+  /** A later release of {@link #WORKSPACE_IMAGE}: same repository, a new tag. */
+  private static final String NEW_WORKSPACE_IMAGE = "registry.example:5000/qits/workspace:2026.1004.2";
+
   private static final Instant NOW = Instant.parse("2026-10-05T04:38:19Z");
 
   private final Vertx vertx = Vertx.vertx();
@@ -469,6 +472,142 @@ class WorkspacesRunnerTest {
             .orElseThrow(() -> new AssertionError(docker.calls()));
     assertEquals("--config", pull.getFirst(), "pulled under the runner's own throwaway login");
     assertEquals(List.of("pull", WORKSPACE_IMAGE), FakeDocker.withoutConfig(pull));
+  }
+
+  // ---- the images pass runs at once, not just on the six-hourly schedule ---------------------------
+  //
+  // Each of these starts from an already-settled connection (its own estateThenAck, naming
+  // WORKSPACE_IMAGE, already here by default): the toolkit's own six-hourly housekeeping always
+  // runs once, unconditionally, right after the first Ack — before the suite can script anything
+  // — so a bare first estate racing that first pass is not a test of this runner's own gate. A
+  // *second* estate, learning NEW_WORKSPACE_IMAGE, is: nothing else touches the node's images
+  // between here and the assertions.
+
+  @Test
+  void aNewlyLearnedImageIsPulledThenPrunesItsPredecessorAtOnce() throws Exception {
+    probesAnswer();
+    estateThenAck();
+    start("t");
+    host.await(LoginState.class);
+
+    docker.answerFor("image-inspect", NEW_WORKSPACE_IMAGE, 1, "", "Error: No such image");
+    docker.answer(
+        "image-ls",
+        0,
+        String.join(
+                "\n", NEW_WORKSPACE_IMAGE + "|sha256:bbbb", WORKSPACE_IMAGE + "|sha256:aaaa")
+            + "\n",
+        "");
+    docker.answerFor("ps", "ancestor=sha256:aaaa", 0, "", "");
+    host.send(new Estate(List.of(1L, 2L), NEW_WORKSPACE_IMAGE));
+    host.await(LoginState.class, 2);
+
+    List<List<String>> calls = docker.calls().stream().map(FakeDocker::withoutConfig).toList();
+    List<String> pull = List.of("pull", NEW_WORKSPACE_IMAGE);
+    List<String> removeOld = List.of("image", "rm", WORKSPACE_IMAGE);
+    assertTrue(calls.contains(pull), "the new image is pulled: " + calls);
+    assertTrue(calls.contains(removeOld), "the unused predecessor is removed: " + calls);
+    assertTrue(
+        calls.indexOf(pull) < calls.indexOf(removeOld),
+        "removed only once the pull succeeded: " + calls);
+    assertFalse(
+        calls.contains(List.of("image", "rm", NEW_WORKSPACE_IMAGE)),
+        "never the current tag itself");
+  }
+
+  @Test
+  void aPredecessorImageStillUsedByAContainerIsKeptEvenAfterTheNewPullSucceeds() throws Exception {
+    probesAnswer();
+    estateThenAck();
+    start("t");
+    host.await(LoginState.class);
+
+    docker.answerFor("image-inspect", NEW_WORKSPACE_IMAGE, 1, "", "Error: No such image");
+    docker.answer(
+        "image-ls",
+        0,
+        String.join(
+                "\n", NEW_WORKSPACE_IMAGE + "|sha256:bbbb", WORKSPACE_IMAGE + "|sha256:aaaa")
+            + "\n",
+        "");
+    // A stopped workspace is still that old image's.
+    docker.answerFor("ps", "ancestor=sha256:aaaa", 0, "c0ffee\n", "");
+    host.send(new Estate(List.of(1L, 2L), NEW_WORKSPACE_IMAGE));
+    host.await(LoginState.class, 2);
+
+    List<List<String>> calls = docker.calls().stream().map(FakeDocker::withoutConfig).toList();
+    assertTrue(
+        calls.contains(List.of("pull", NEW_WORKSPACE_IMAGE)), "still pulls the new image: " + calls);
+    assertFalse(
+        calls.contains(List.of("image", "rm", WORKSPACE_IMAGE)),
+        "a container still runs from it: " + calls);
+  }
+
+  @Test
+  void aFailedPullOfTheNewImagePrunesNothing() throws Exception {
+    probesAnswer();
+    estateThenAck();
+    start("t");
+    host.await(LoginState.class);
+
+    docker.answerFor("image-inspect", NEW_WORKSPACE_IMAGE, 1, "", "Error: No such image");
+    docker.answerFor("pull", NEW_WORKSPACE_IMAGE, 1, "", "Error: pull access denied");
+    docker.answer(
+        "image-ls",
+        0,
+        String.join(
+                "\n", NEW_WORKSPACE_IMAGE + "|sha256:bbbb", WORKSPACE_IMAGE + "|sha256:aaaa")
+            + "\n",
+        "");
+    List<String> imageLs =
+        List.of("image", "ls", "--no-trunc", "--format", "{{.Repository}}:{{.Tag}}|{{.ID}}");
+    long lsBefore =
+        docker.calls().stream().map(FakeDocker::withoutConfig).filter(imageLs::equals).count();
+    host.send(new Estate(List.of(1L, 2L), NEW_WORKSPACE_IMAGE));
+    host.await(LoginState.class, 2);
+
+    List<List<String>> calls = docker.calls().stream().map(FakeDocker::withoutConfig).toList();
+    assertTrue(
+        calls.contains(List.of("pull", NEW_WORKSPACE_IMAGE)), "the failed pull itself: " + calls);
+    assertFalse(
+        calls.contains(List.of("image", "rm", WORKSPACE_IMAGE)),
+        "a pull that failed proves nothing stale: " + calls);
+    assertEquals(
+        lsBefore,
+        calls.stream().filter(imageLs::equals).count(),
+        "the pass never even looked: " + calls);
+  }
+
+  @Test
+  void aSecondEstateNamingTheSameNewImageDoesNotPruneASecondTime() throws Exception {
+    probesAnswer();
+    estateThenAck();
+    start("t");
+    host.await(LoginState.class);
+
+    docker.answerFor("image-inspect", NEW_WORKSPACE_IMAGE, 1, "", "Error: No such image");
+    docker.answer(
+        "image-ls",
+        0,
+        String.join(
+                "\n", NEW_WORKSPACE_IMAGE + "|sha256:bbbb", WORKSPACE_IMAGE + "|sha256:aaaa")
+            + "\n",
+        "");
+    docker.answerFor("ps", "ancestor=sha256:aaaa", 0, "", "");
+    host.send(new Estate(List.of(1L, 2L), NEW_WORKSPACE_IMAGE));
+    host.await(LoginState.class, 2);
+    List<String> removeOld = List.of("image", "rm", WORKSPACE_IMAGE);
+    assertEquals(
+        1,
+        docker.calls().stream().map(FakeDocker::withoutConfig).filter(removeOld::equals).count(),
+        "removed once: " + docker.calls());
+
+    host.send(new Estate(List.of(1L, 2L), NEW_WORKSPACE_IMAGE));
+    host.await(LoginState.class, 3);
+    assertEquals(
+        1,
+        docker.calls().stream().map(FakeDocker::withoutConfig).filter(removeOld::equals).count(),
+        "the same image, already ensured once this process: no second pass: " + docker.calls());
   }
 
   // ---- the login ----------------------------------------------------------------------------------

@@ -5,6 +5,7 @@ import eu.wohlben.qits.runner.protocol.Ack;
 import eu.wohlben.qits.runner.protocol.DomainCodec;
 import eu.wohlben.qits.runner.protocol.RunnerCapabilities;
 import eu.wohlben.qits.runner.toolkit.HostFacts;
+import eu.wohlben.qits.runner.toolkit.HousekeepingContext;
 import eu.wohlben.qits.runner.toolkit.HousekeepingPass;
 import eu.wohlben.qits.runner.toolkit.OwnResources;
 import eu.wohlben.qits.runner.toolkit.RunnerDocker;
@@ -29,6 +30,7 @@ import eu.wohlben.qits.workspacesrunner.protocol.Stopped;
 import eu.wohlben.qits.workspacesrunner.protocol.Take;
 import eu.wohlben.qits.workspacesrunner.protocol.WorkspacesRunnerCodec;
 import eu.wohlben.qits.workspacesrunner.protocol.WorkspacesRunnerMessage;
+import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
 import java.util.ArrayList;
@@ -114,6 +116,8 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
 
   private final RunnerIdentity identity = WorkspacesRunnerIdentity.IDENTITY;
   private final RunnerDocker docker;
+  private final String runnerId;
+  private final Path stateDir;
   private final WorkspaceNames names;
   private final NodeVolumes volumes;
   private final WorkspaceContainers containers;
@@ -144,6 +148,15 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
   /** The latest {@code estate}, kept across reconnects for its image; null before the first. */
   private volatile Estate estate;
 
+  /**
+   * The workspace image this process last pulled (or found already here) and pruned old tags
+   * for; null before the first {@code estate}. Kept across reconnects — a reconnect's {@code
+   * estate} naming the same image prunes nothing a second time — but never across a process, so a
+   * restarted runner's first {@code estate} always runs the pass once, same as a genuinely new
+   * image.
+   */
+  private volatile String lastEnsuredImage;
+
   /** This session's {@code estate.owned}; null until one arrived in this session. */
   private volatile Set<Long> sessionOwned;
 
@@ -170,6 +183,8 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
   /** The same domain with the node's clocks a suite shrinks. */
   WorkspacesRunnerDomain(RunnerSettings settings, Timing timing, Clock clock) {
     this.docker = RunnerDocker.of(identity, settings);
+    this.runnerId = settings.runnerId();
+    this.stateDir = settings.stateDir();
     this.names = new WorkspaceNames(identity, settings.runnerId());
     this.volumes = new NodeVolumes(identity, settings.runnerId());
     this.containers = new WorkspaceContainers(identity, settings.runnerId(), docker);
@@ -307,7 +322,12 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
     }
   }
 
-  /** The workspace images and the unowned workspace volumes, after the toolkit's own passes. */
+  /**
+   * The workspace images and the unowned workspace volumes, after the toolkit's own passes. {@link
+   * #onEstate} already runs the images pass on its own, at once, the first time it ensures a given
+   * image; this scheduled copy is what catches an image nothing has freshly pulled since — an old
+   * tag a container stopped using between estates, say.
+   */
   @Override
   public List<HousekeepingPass> housekeeping() {
     return List.of(
@@ -331,7 +351,12 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
   /**
    * The server's list. Containers of rows it does not own go at once, then the {@code inventory}
    * says what is left; the workspace image is pulled when it is not here (so the probe, the health
-   * check and the operator's login command all find it), and the login is probed.
+   * check and the operator's login command all find it). Once the pull succeeds (or the image was
+   * here already), and only when it names an image this process has not already ensured, {@link
+   * WorkspaceImagesPass} runs at once rather than waiting for the next six-hourly housekeeping —
+   * one release leaves one old tag behind on every node, and there is no reason to sit on it until
+   * the schedule comes around. A failed pull prunes nothing: the old tags are the only thing on the
+   * node still proven to run. The login is then probed.
    */
   private void onEstate(Estate e, RunnerSession session) {
     estate = e;
@@ -353,14 +378,30 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
     look(session, true);
     String image = e.workspaceImage();
     if (image != null && !image.isBlank()) {
-      NodeImages.ensure(docker, session, image)
-          .ifPresent(
-              why ->
-                  LOG.warnf(
-                      "workspaces-runner could not pre-pull the workspace image %s: %s",
-                      image, why));
+      Optional<String> failure = NodeImages.ensure(docker, session, image);
+      if (failure.isPresent()) {
+        LOG.warnf(
+            "workspaces-runner could not pre-pull the workspace image %s: %s",
+            image, failure.get());
+      } else if (!image.equals(lastEnsuredImage)) {
+        lastEnsuredImage = image;
+        new WorkspaceImagesPass(docker, this::workspaceImage).run(housekeepingContext());
+      }
     }
     probeLogin(session);
+  }
+
+  /** The same context {@link eu.wohlben.qits.runner.toolkit.Housekeeping} hands every pass. */
+  private HousekeepingContext housekeepingContext() {
+    return new HousekeepingContext(
+        identity,
+        runnerId,
+        docker.driver(),
+        new OwnResources(identity, runnerId, docker),
+        docker.deadline(),
+        stateDir,
+        clock,
+        LOG);
   }
 
   /**

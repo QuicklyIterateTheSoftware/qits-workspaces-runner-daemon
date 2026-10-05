@@ -12,12 +12,6 @@ removes the containers it is told to, and reports what it has.
     ./mvnw verify                                              # the JVM suite
     docker build -t qits-workspaces-runner:dev -f docker/Dockerfile .   # the image (see docker/Dockerfile)
 
-> **This release is the runner's lifecycle** (qits-842): register, connect, update itself, health
-> check, disk cleanup, decommission. It does not launch workspaces yet — a workspace handed to it
-> fails at once with "this runner version does not launch workspaces yet" — and it reports its
-> login state as UNKNOWN. Launching (qits-854) and the per-node login (qits-858) arrive in the next
-> releases, and a runner installed now updates itself into them.
-
 ## Installing a runner (for the person at the machine)
 
 A runner is **one docker container**: the static `qits-workspaces-runner` binary in the image
@@ -82,18 +76,31 @@ An admin can run the check again, or greenlight the runner, from the Runners pag
 ### Logging in the agent CLIs (once per node)
 
 The workspaces on one runner share one agent home: the volume
-`qits-workspaces-runner-dot-claude-<id8>`, mounted at `/claude-home`. You log in **once per node**,
-on the node, and the platform never sees or moves the secret. The Runners page shows the login state
-and the one command; it is
+`qits-workspaces-runner-dot-claude-<id8>`, mounted at `/claude-home` (`CLAUDE_CONFIG_DIR` and
+`KIMI_CODE_HOME` point into it). The runner creates it, labelled, as soon as it connects. You log in
+**once per node**, on the node, and the platform never sees or moves the secret. The Runners page
+shows the login state and the one command; it is
 
-    docker run --rm -it -v qits-workspaces-runner-dot-claude-<id8>:/claude-home \
-      -e HOME=/claude-home -e CLAUDE_CONFIG_DIR=/claude-home \
-      registry.qits.<domain>/qits/workspace:<pin> claude
+    docker run --rm -it -v <dotClaudeVolume>:/claude-home -e HOME=/claude-home -e CLAUDE_CONFIG_DIR=/claude-home <registry.qits.<d>/qits/workspace:<pin>> claude
 
-(Kimi: the same with `kimi login` as the last words.) It runs the workspace image the runner already
-pulled, so it needs no registry login. Then press **re-check** on the Runners page. A deleted runner's
-login is deleted with it. *(The login probe arrives with qits-858; until then the state reads
-UNKNOWN.)*
+— `<dotClaudeVolume>` being `qits-workspaces-runner-dot-claude-<id8>` and the image the workspace
+image qits-workspaces pins. For Kimi Code the same command ends in `kimi login` instead of `claude`:
+
+    docker run --rm -it -v <dotClaudeVolume>:/claude-home -e HOME=/claude-home -e CLAUDE_CONFIG_DIR=/claude-home <registry.qits.<d>/qits/workspace:<pin>> kimi login
+
+It runs the workspace image the runner already pulled (it pulls it after every connection when it is
+not here), so it needs no registry login. Then press **re-check** on the Runners page.
+
+How the runner knows: it runs the same image against the same volume and asks —
+`claude auth status` (its `loggedIn`), and for Kimi whether a credential file exists under
+`/claude-home/.kimi-code`. It reads presence only: what `auth status` prints names the account and
+is never logged, kept or sent. The state reads PRESENT, ABSENT, or UNKNOWN when the probe could not
+run (the image is not here yet, docker refused). It is checked after every connection, on
+**re-check**, every 5 minutes while either login is ABSENT, and hourly otherwise.
+
+**A deleted runner's login goes with it**: the agent home is labelled
+`qits.workspaces.runner=<id>`, and deleting the runner removes it with everything else of the
+runner's. A new runner on the same node is logged in again.
 
 ### Updating
 
@@ -144,10 +151,11 @@ runs `docker system prune`, `image prune -a` or `volume prune`.
 |---|---|---|
 | the runner | `qits-workspaces-runner-<id8>-<version>` | `qits.workspaces.runner.process=<id>`, `qits.workspaces.runner.version=<version>` |
 | its state (`client.json`, `heartbeat`) | volume `qits-workspaces-runner-state-<id8>` at `/var/lib/qits-workspaces-runner` | — |
-| a workspace (row id `<rowId>`) | container and volume `qits-workspaces-runner-ws-<rowId>-<id8>` | `qits.workspaces.runner=<id>`, `qits.workspaces.runner.workspace=<rowId>` |
+| a workspace (row id `<rowId>`) | container and volume `qits-workspaces-runner-ws-<rowId>-<id8>` | `qits.workspaces.runner=<id>`, `qits.workspaces.runner.workspace=<rowId>` (the container also `qits.workspaces.runner.spec=<sha256>`) |
 | the agent home | volume `qits-workspaces-runner-dot-claude-<id8>` | `qits.workspaces.runner=<id>` |
 | the caches | volumes `qits-workspaces-runner-m2-<id8>`, `qits-workspaces-runner-pnpm-<id8>` | `qits.workspaces.runner=<id>` |
 | the health check | container `qits-workspaces-runner-health-check-<id8>`, seconds long | `qits.workspaces.runner=<id>` |
+| the login probe | two `--rm` containers of the workspace image, seconds long | `qits.workspaces.runner=<id>` |
 | the decommission helper | `qits-workspaces-runner-<id8>-decommission` | `qits.workspaces.runner.decommission=<id>` |
 
 ### Disk
@@ -156,6 +164,13 @@ The runner cleans up after itself; there is nothing to configure. Every 6 hours 
 connects) it removes old images of its own repository, dangling layers (`docker image prune -f`),
 and workspace images other than the one qits-workspaces currently pins that no container was created
 from. An image a container still uses is never removed.
+
+Workspaces follow qits-workspaces' list of the rows this runner owns, which it sends on every
+connection: a workspace container of a row no longer on it is removed at once, and its `/workspace`
+volume at the next of those passes. Nothing is removed before that list has arrived on the current
+connection, and a container or volume without the runner's label is never a candidate. A workspace
+container runs as uid 1000 with no restart policy: it stops when qits-workspaces stops it or when it
+ends by itself, and a docker restart does not bring it back behind qits-workspaces' back.
 
 ### Environment
 
@@ -206,8 +221,11 @@ or stale, 2 when the state directory does not exist.
   capability version, the vocabulary, the identity roots, and `WorkspacesRunnerBinary.VERSION` — the
   image tag, so qits-workspaces' pin of this jar is the pin of the runner it hands out. Depends on
   `qits-runner-protocol` only.
-- `workspaces-runner/` — the binary: `Main`, `WorkspacesRunnerIdentity`, `WorkspacesRunnerDomain`,
-  `NodeHealthCheck`, `WorkspaceImagesPass`, on `qits-runner-toolkit`.
+- `workspaces-runner/` — the binary: `Main`, `WorkspacesRunnerIdentity`, `WorkspacesRunnerDomain`
+  (the frames, the slots, the estate reconcile, the exit watch), `WorkspaceLauncher` (a take's
+  ladder: running → launched, same spec → `docker start`, other spec or none → created),
+  `WorkspaceContainers`, `NodeVolumes`, `LoginProbe`, `NodeHealthCheck`, `WorkspaceImagesPass` and
+  `WorkspaceVolumesPass`, on `qits-runner-toolkit`.
 - `docker/` — the native musl compile and the image (`Dockerfile`), and the toolchain
   (`Dockerfile.musl-builder`, a copy of qits-ci-runner-daemon's).
 - `.config/qits/release.yml` — the gate (the suite, an image smoke test) and the release (the image,

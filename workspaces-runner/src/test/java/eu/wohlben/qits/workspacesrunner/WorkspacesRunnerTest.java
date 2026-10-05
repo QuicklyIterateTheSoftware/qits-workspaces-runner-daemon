@@ -456,12 +456,12 @@ class WorkspacesRunnerTest {
     probesAnswer();
     estateThenAck();
     start("t");
-    host.await(Inventory.class, 2);
+    host.await(LoginState.class);
     assertTrue(docker.calls("pull").isEmpty(), "here already: " + docker.calls());
 
     docker.answerFor("image-inspect", WORKSPACE_IMAGE, 1, "", "Error: No such image");
     host.send(new Estate(List.of(1L, 2L), WORKSPACE_IMAGE));
-    awaitCall(c -> c.stream().anyMatch(call -> call.contains("pull")));
+    host.await(LoginState.class, 2);
     List<String> pull =
         docker.calls().stream()
             .filter(c -> c.contains("pull"))
@@ -471,8 +471,51 @@ class WorkspacesRunnerTest {
     assertEquals(List.of("pull", WORKSPACE_IMAGE), FakeDocker.withoutConfig(pull));
   }
 
+  // ---- the login ----------------------------------------------------------------------------------
+
   @Test
-  void aLoginProbeIsAnsweredUnknownUntilTheProbeExists() throws Exception {
+  void theLoginIsProbedAfterTheEstateEveryFewMinutesWhileAbsentAndHourlyOnceThere()
+      throws Exception {
+    timing =
+        new WorkspacesRunnerDomain.Timing(
+            Duration.ofMillis(600),
+            Duration.ofMillis(50),
+            Duration.ofMillis(100),
+            Duration.ofMillis(150),
+            Duration.ofHours(1));
+    docker.answerFor("run", "status", 1, "{\"loggedIn\": false}\n", "");
+    docker.answerFor("run", LoginProbe.KIMI_CHECK, 1, "", "");
+    estateThenAck();
+    start("t");
+
+    host.await(LoginState.class, 3);
+    assertTrue(
+        host.all(LoginState.class).stream()
+            .allMatch(
+                l ->
+                    l.claude() == LoginPresence.ABSENT
+                        && l.kimi() == LoginPresence.ABSENT
+                        && l.checkedAt().equals(NOW.toString())));
+
+    // The operator logs in on the node.
+    docker.answerFor("run", "status", 0, "{\"loggedIn\": true}\n", "");
+    docker.answerFor("run", LoginProbe.KIMI_CHECK, 0, "", "");
+    awaitTrue(
+        () -> {
+          LoginState last = host.all(LoginState.class).getLast();
+          return last.claude() == LoginPresence.PRESENT && last.kimi() == LoginPresence.PRESENT;
+        });
+    int settled = host.all(LoginState.class).size();
+    Thread.sleep(800);
+    assertEquals(settled, host.all(LoginState.class).size(), "present: the next probe is an hour off");
+
+    host.send(new ProbeLogin());
+    LoginState rechecked = host.await(LoginState.class, settled + 1);
+    assertEquals(LoginPresence.PRESENT, rechecked.claude());
+  }
+
+  @Test
+  void aLoginProbeBeforeAnyEstateIsUnknown() throws Exception {
     ackWith(1, 0);
     start("t");
     host.await(Hello.class);
@@ -481,6 +524,7 @@ class WorkspacesRunnerTest {
     assertEquals(
         new LoginState(LoginPresence.UNKNOWN, LoginPresence.UNKNOWN, NOW.toString()),
         host.await(LoginState.class));
+    assertTrue(docker.calls("run").isEmpty(), "no image to probe with");
   }
 
   // ---- the health check ---------------------------------------------------------------------------
@@ -870,8 +914,11 @@ class WorkspacesRunnerTest {
         "");
   }
 
-  /** No login probe yet (qits-858). */
-  private void probesAnswer() {}
+  /** Both login probes answered present, so no probe leaves a container in the fake's state. */
+  private void probesAnswer() throws Exception {
+    docker.answerFor("run", "status", 0, "{\"loggedIn\": true}\n", "");
+    docker.answerFor("run", LoginProbe.KIMI_CHECK, 0, "", "");
+  }
 
   private List<List<String>> runsOf(String name) {
     return docker.calls("run").stream().filter(c -> c.contains(name)).toList();

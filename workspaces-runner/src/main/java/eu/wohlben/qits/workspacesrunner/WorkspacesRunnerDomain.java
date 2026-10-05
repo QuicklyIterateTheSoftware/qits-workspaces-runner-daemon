@@ -119,6 +119,7 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
   private final WorkspaceContainers containers;
   private final WorkspaceLauncher launcher;
   private final NodeHealthCheck healthCheck;
+  private final LoginProbe loginProbe;
   private final Timing timing;
   private final Clock clock;
 
@@ -159,6 +160,7 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
   private Inventory lastInventory;
 
   private ScheduledFuture<?> watch;
+  private ScheduledFuture<?> nextProbe;
 
   /** Built by {@code RunnerLauncher} from the parsed settings, as every embedder's domain is. */
   public WorkspacesRunnerDomain(RunnerSettings settings) {
@@ -174,6 +176,13 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
     this.launcher = new WorkspaceLauncher(docker, names, volumes, containers);
     this.healthCheck =
         new NodeHealthCheck(docker, names, timing.healthWindow(), timing.healthPoll());
+    this.loginProbe =
+        new LoginProbe(
+            identity,
+            settings.runnerId(),
+            new RunnerDocker(identity, settings.dockerBinary(), LoginProbe.DEADLINE),
+            volumes,
+            clock);
     this.timing = timing;
     this.clock = clock;
     ScheduledThreadPoolExecutor pool =
@@ -351,6 +360,7 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
                       "workspaces-runner could not pre-pull the workspace image %s: %s",
                       image, why));
     }
+    probeLogin(session);
   }
 
   /**
@@ -462,10 +472,38 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
     session.send(healthCheck.run(session, workspaceImage()));
   }
 
-  /** {@code UNKNOWN} until the login probe lands (qits-858): the probe cannot run here yet. */
+  /**
+   * Probe now, send {@code loginState}, and schedule the next: in {@link Timing#loginAbsentEvery}
+   * while either login is ABSENT (an operator is probably logging in), else in {@link
+   * Timing#loginPresentEvery}.
+   */
   private void probeLogin(RunnerSession session) {
-    session.send(
-        new LoginState(LoginPresence.UNKNOWN, LoginPresence.UNKNOWN, clock.instant().toString()));
+    if (decommissioning) {
+      return;
+    }
+    LoginState state = loginProbe.probe(session.driver(), workspaceImage());
+    session.send(state);
+    boolean absent =
+        state.claude() == LoginPresence.ABSENT || state.kimi() == LoginPresence.ABSENT;
+    Duration next = absent ? timing.loginAbsentEvery() : timing.loginPresentEvery();
+    synchronized (timer) {
+      if (nextProbe != null) {
+        nextProbe.cancel(false);
+      }
+      if (timer.isShutdown()) {
+        return;
+      }
+      nextProbe =
+          timer.schedule(
+              () -> {
+                RunnerSession s = this.session;
+                if (s != null && live) {
+                  probeLogin(s);
+                }
+              },
+              next.toMillis(),
+              TimeUnit.MILLISECONDS);
+    }
   }
 
   // --- the node, as docker reports it -------------------------------------------------------------

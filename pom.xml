@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- Standalone parent for qits-workspaces-runner-daemon, deliberately the same shape as
+         qits-ci-runner-daemon's root: the eu.wohlben:qits coordinates a child's <parent> points at
+         (../pom.xml), the quarkus-bom import, and the compiler/surefire pins. A clone of this repo
+         alone must `./mvnw verify` green.
+
+         ONE DIFFERENCE, AND IT IS THE POINT OF THIS REPOSITORY: the runner is built on
+         qits-runner-javalib (qits-771) — register, bearer, socket, slots, self-update,
+         decommission, health and GC are its, not this reactor's — and that library and
+         qits-containers-driver under it are published to the platform's own maven repository, so
+         this root declares `qits-maven` the way qits-projects-daemon's does.
+
+         The version is 1.0.0-SNAPSHOT until the first release stamps it; the release flow rewrites
+         every <version> here to the tag it cuts. -->
+    <groupId>eu.wohlben</groupId>
+    <artifactId>qits</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <modules>
+        <module>workspaces-runner-protocol</module>
+    </modules>
+
+    <properties>
+        <maven.compiler.release>25</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
+
+        <quarkus.platform.artifact-id>quarkus-bom</quarkus.platform.artifact-id>
+        <quarkus.platform.group-id>io.quarkus.platform</quarkus.platform.group-id>
+        <quarkus.platform.version>3.34.6</quarkus.platform.version>
+
+        <!-- qits-runner-javalib (qits-771): qits-runner-protocol and qits-runner-toolkit, one
+             release, pinned to a released calver and moved only by the maintenance dependencies
+             bump — never by hand. The toolkit brings qits-containers-driver at the version it was
+             released against. -->
+        <qits.runner.version>2026.1004.235414</qits.runner.version>
+
+        <!-- Where the platform publishes it. Overridden by CI (-Dqits.maven.repository.url), derived
+             from QITS_DOMAIN; the default below is the public host. -->
+        <qits.maven.repository.url>https://registry.qits.wohlben.eu/artifacts/maven/maven</qits.maven.repository.url>
+
+        <compiler-plugin.version>3.15.0</compiler-plugin.version>
+        <surefire-plugin.version>3.5.4</surefire-plugin.version>
+        <enforcer-plugin.version>3.5.0</enforcer-plugin.version>
+    </properties>
+
+    <!-- The platform's own Maven repository: qits-runner-protocol, qits-runner-toolkit and the
+         qits-containers-driver beneath it live only here. The id has to stay `qits-maven` — it is
+         what the settings file's exact-id mirror matches (Maven blocks external http:// repositories
+         otherwise) and what a locally cached copy is recorded under. -->
+    <repositories>
+        <repository>
+            <id>qits-maven</id>
+            <url>${qits.maven.repository.url}</url>
+        </repository>
+    </repositories>
+
+    <dependencyManagement>
+        <dependencies>
+            <!-- Supplies the managed versions the children leave unversioned: junit-jupiter for
+                 both modules, quarkus-arc/quarkus-vertx for the application, and the vertx-core and
+                 jboss-logging the toolkit links, aligned with the platform's own. -->
+            <dependency>
+                <groupId>${quarkus.platform.group-id}</groupId>
+                <artifactId>${quarkus.platform.artifact-id}</artifactId>
+                <version>${quarkus.platform.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+            <!-- The wire-contract module under its PUBLISHED coordinate — `eu.wohlben.qits:
+                 qits-workspaces-runner-protocol`, not this reactor's group and not the directory
+                 name — so `-pl workspaces-runner -am` resolves it from the reactor beside it rather
+                 than from a registry. -->
+            <dependency>
+                <groupId>eu.wohlben.qits</groupId>
+                <artifactId>qits-workspaces-runner-protocol</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>eu.wohlben.qits</groupId>
+                <artifactId>qits-runner-protocol</artifactId>
+                <version>${qits.runner.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>eu.wohlben.qits</groupId>
+                <artifactId>qits-runner-toolkit</artifactId>
+                <version>${qits.runner.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>${quarkus.platform.group-id}</groupId>
+                    <artifactId>quarkus-maven-plugin</artifactId>
+                    <version>${quarkus.platform.version}</version>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <version>${compiler-plugin.version}</version>
+                    <configuration>
+                        <parameters>true</parameters>
+                    </configuration>
+                </plugin>
+                <plugin>
+                    <artifactId>maven-surefire-plugin</artifactId>
+                    <version>${surefire-plugin.version}</version>
+                </plugin>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-enforcer-plugin</artifactId>
+                    <version>${enforcer-plugin.version}</version>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+</project>

@@ -17,8 +17,12 @@ import org.jboss.logging.Logger;
  * exactly as qits-coding-agents' {@code AgentAuthStatus} asks inside a workspace:
  *
  * <ul>
- *   <li>Claude Code: {@code claude auth status} with {@code HOME} and {@code CLAUDE_CONFIG_DIR} at
- *       {@code /claude-home}, read by {@code loggedIn} in the JSON it prints;
+ *   <li>Claude Code: {@code claude auth status} with {@code HOME=/claude-home} and {@code
+ *       CLAUDE_CONFIG_DIR=/claude-home/.claude} — the workspace container's own {@code
+ *       CLAUDE_CONFIG_DIR} plus the {@code HOME} {@code AgentAuthStatus} adds — read by {@code
+ *       loggedIn} in the JSON it prints. A probe with {@code CLAUDE_CONFIG_DIR=/claude-home} (what
+ *       shipped first, qits-945) read a login one directory above where every workspace looks, and
+ *       answered PRESENT for a node on which every launch was {@code not-signed-in};
  *   <li>Kimi Code: the credential file's presence under {@code /claude-home/.kimi-code} — either
  *       layout {@code AgentAuthStatus} accepts, the flat {@code credentials} file or {@code
  *       credentials/kimi-code.json}.
@@ -42,6 +46,12 @@ final class LoginProbe {
 
   /** Where the agent home is mounted, as every workspace container mounts it. */
   static final String CLAUDE_HOME = "/claude-home";
+
+  /**
+   * Claude Code's config directory inside the agent home ({@code CLAUDE_CONFIG_DIR}), as
+   * qits-workspaces sets it on every workspace container: {@code <claudeMount>/.claude}.
+   */
+  static final String CLAUDE_CONFIG_DIR = CLAUDE_HOME + "/.claude";
 
   /** Kimi's home inside the agent home ({@code KIMI_CODE_HOME}), as qits-workspaces sets it. */
   static final String KIMI_HOME = CLAUDE_HOME + "/.kimi-code";
@@ -93,8 +103,8 @@ final class LoginProbe {
 
   /**
    * {@code docker run --rm --label <owner> --user 1000 --entrypoint claude -v
-   * <dot-claude>:/claude-home -e HOME=/claude-home -e CLAUDE_CONFIG_DIR=/claude-home <image> auth
-   * status}. The workspace user, not the image's default (root): a login written by this probe as
+   * <dot-claude>:/claude-home -e HOME=/claude-home -e CLAUDE_CONFIG_DIR=/claude-home/.claude
+   * <image> auth status}. The workspace user, not the image's default (root): a login written by this probe as
    * root would read PRESENT here and still be unreadable by the workspace that actually uses it.
    */
   List<String> claudeArgv(String image) {
@@ -113,7 +123,7 @@ final class LoginProbe {
         "-e",
         "HOME=" + CLAUDE_HOME,
         "-e",
-        "CLAUDE_CONFIG_DIR=" + CLAUDE_HOME,
+        "CLAUDE_CONFIG_DIR=" + CLAUDE_CONFIG_DIR,
         LifecycleArgv.requireImage(image),
         "auth",
         "status");

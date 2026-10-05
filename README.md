@@ -86,18 +86,22 @@ others only read, so the answer is how a person sees the node without its shell.
 ### Logging in the agent CLIs (once per node)
 
 The workspaces on one runner share one agent home: the volume
-`qits-workspaces-runner-dot-claude-<id8>`, mounted at `/claude-home` (`CLAUDE_CONFIG_DIR` and
-`KIMI_CODE_HOME` point into it). The runner creates it, labelled, as soon as it connects. You log in
+`qits-workspaces-runner-dot-claude-<id8>`, mounted at `/claude-home` (`CLAUDE_CONFIG_DIR=/claude-home/.claude` and
+`KIMI_CODE_HOME=/claude-home/.kimi-code` point into it). The runner creates it, labelled, as soon as it connects. You log in
 **once per node**, on the node, and the platform never sees or moves the secret. The Runners page
 shows the login state and the one command; it is
 
-    docker run --rm -it --user 1000 --entrypoint claude -v <dotClaudeVolume>:/claude-home -e HOME=/claude-home -e CLAUDE_CONFIG_DIR=/claude-home <registry.qits.<d>/qits/workspace:<pin>>
+    docker run --rm -it --user 1000 --entrypoint claude -v <dotClaudeVolume>:/claude-home -e HOME=/claude-home -e CLAUDE_CONFIG_DIR=/claude-home/.claude <registry.qits.<d>/qits/workspace:<pin>>
 
 — `<dotClaudeVolume>` being `qits-workspaces-runner-dot-claude-<id8>` and the image the workspace
 image qits-workspaces pins. `--user 1000` is the workspace's own user, not the image's default
 root: a login written as root would be unreadable by the workspace containers that mount the same
 volume. `--entrypoint claude` is needed for the same reason it is on every other command here — the
-image's default entrypoint starts the workspace daemon, not the agent CLI. For Kimi Code:
+image's default entrypoint starts the workspace daemon, not the agent CLI. The two `-e` are exactly
+the agent home a workspace container has — its own `CLAUDE_CONFIG_DIR`, and the `HOME` its sign-in
+terminal and login check add — so the login lands where every workspace reads it. A login made with
+`CLAUDE_CONFIG_DIR=/claude-home` (the first command shipped) sits one directory too high, where no
+workspace looks: run the command above again (qits-945). For Kimi Code:
 
     docker run --rm -it --user 1000 --entrypoint kimi -v <dotClaudeVolume>:/claude-home -e HOME=/claude-home -e KIMI_CODE_HOME=/claude-home/.kimi-code <registry.qits.<d>/qits/workspace:<pin>> login
 
@@ -105,7 +109,7 @@ It runs the workspace image the runner already pulled (it pulls it after every c
 not here), so it needs no registry login. Then press **re-check** on the Runners page.
 
 How the runner knows: it runs the same image against the same volume and asks —
-`claude auth status` (its `loggedIn`), and for Kimi whether a credential file exists under
+`claude auth status` (its `loggedIn`) with the same `HOME` and `CLAUDE_CONFIG_DIR`, and for Kimi whether a credential file exists under
 `/claude-home/.kimi-code`. It reads presence only: what `auth status` prints names the account and
 is never logged, kept or sent. The state reads PRESENT, ABSENT, or UNKNOWN when the probe could not
 run (the image is not here yet, docker refused). It is checked after every connection, on

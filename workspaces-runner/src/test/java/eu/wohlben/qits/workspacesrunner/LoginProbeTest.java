@@ -82,7 +82,7 @@ class LoginProbeTest {
                 "-e",
                 "HOME=/claude-home",
                 "-e",
-                "CLAUDE_CONFIG_DIR=/claude-home",
+                "CLAUDE_CONFIG_DIR=/claude-home/.claude",
                 IMAGE,
                 "auth",
                 "status"),

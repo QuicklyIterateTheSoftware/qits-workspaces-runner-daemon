@@ -24,6 +24,7 @@
 
     <modules>
         <module>workspaces-runner-protocol</module>
+        <module>workspaces-runner</module>
     </modules>
 
     <properties>

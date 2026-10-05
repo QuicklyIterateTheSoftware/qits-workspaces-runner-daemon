@@ -20,7 +20,7 @@ import java.util.Set;
  *   Stop{rowId} → Stopped{rowId}            Delete{rowId} → Deleted{rowId}
  *   Exited{rowId, exitCode}                 (a workspace container that stopped by itself)
  *   ProbeLogin → LoginState{claude, kimi, checkedAt}
- *   HealthCheck → HealthChecked{ok, detail}
+ *   HealthCheck{requestId?} → HealthChecked{ok, detail, requestId?, checks?[{name, ok, detail, data}]}
  * </pre>
  *
  * <p><b>Identity is not on the wire.</b> The runner presents a bearer minted from the idp client it
@@ -147,6 +147,11 @@ public final class WorkspacesRunnerProtocol {
     public static final String KIMI = "kimi";
     public static final String CHECKED_AT = "checkedAt";
     public static final String OK = "ok";
+    // HealthCheck, HealthChecked and its named checks
+    public static final String REQUEST_ID = "requestId";
+    public static final String CHECKS = "checks";
+    public static final String NAME = "name";
+    public static final String DATA = "data";
     // WorkspaceSpec
     public static final String IMAGE = "image";
     public static final String ENV = "env";

@@ -62,6 +62,24 @@ class WorkspacesRunnerCodecTest {
     return new WorkspaceSpec(IMAGE, Map.of(), List.of(), Map.of(), null, null, null, null, null, false);
   }
 
+  private static HealthChecked fullHealthChecked() {
+    Map<String, Object> container = new LinkedHashMap<>();
+    container.put("name", "qits-workspaces-runner-ws-2201-1a2b3c4d");
+    container.put("rowId", 2201L);
+    container.put("finishedAt", null);
+    Map<String, Object> inventory = new LinkedHashMap<>();
+    inventory.put("containers", List.of(container));
+    inventory.put("runnerContainer", null);
+    return new HealthChecked(
+        false,
+        "session: timed out after 1s",
+        "req-1",
+        List.of(
+            new CheckResult("docker", true, "docker 27.3.1", Map.of("serverVersion", "27.3.1")),
+            new CheckResult("nodeInventory", true, "1 container, 0 volumes", inventory),
+            new CheckResult("session", false, "timed out after 1s", Map.of())));
+  }
+
   /** One of every frame, and a second shape where a field is nullable or a list can be empty. */
   private static List<WorkspacesRunnerMessage> everyFrame() {
     return List.of(
@@ -73,6 +91,7 @@ class WorkspacesRunnerCodecTest {
         new Delete(2201L),
         new ProbeLogin(),
         new HealthCheck(),
+        new HealthCheck("req-1"),
         new Inventory(
             List.of(new HeldContainer(2201L, true, "sha256:abc"), new HeldContainer(7L, false, null)),
             List.of(2201L, 7L),
@@ -86,7 +105,8 @@ class WorkspacesRunnerCodecTest {
         new LoginState(LoginPresence.PRESENT, LoginPresence.ABSENT, "2026-10-05T04:38:19Z"),
         new LoginState(LoginPresence.UNKNOWN, LoginPresence.UNKNOWN, null),
         new HealthChecked(true, "ran " + IMAGE + " and saw it running"),
-        new HealthChecked(false, "it never ran"));
+        new HealthChecked(false, "it never ran"),
+        fullHealthChecked());
   }
 
   @Test
@@ -192,6 +212,18 @@ class WorkspacesRunnerCodecTest {
     assertJson(
         "{\"type\":\"healthChecked\",\"ok\":true,\"detail\":\"fine\"}",
         new HealthChecked(true, "fine"));
+    assertJson(
+        "{\"type\":\"healthCheck\",\"requestId\":\"req-1\"}", new HealthCheck("req-1"));
+    assertJson(
+        "{\"type\":\"healthChecked\",\"ok\":false,\"detail\":\"session: timed out after 1s\","
+            + "\"requestId\":\"req-1\",\"checks\":["
+            + "{\"name\":\"docker\",\"ok\":true,\"detail\":\"docker 27.3.1\","
+            + "\"data\":{\"serverVersion\":\"27.3.1\"}},"
+            + "{\"name\":\"nodeInventory\",\"ok\":true,\"detail\":\"1 container, 0 volumes\","
+            + "\"data\":{\"containers\":[{\"name\":\"qits-workspaces-runner-ws-2201-1a2b3c4d\","
+            + "\"rowId\":2201,\"finishedAt\":null}],\"runnerContainer\":null}},"
+            + "{\"name\":\"session\",\"ok\":false,\"detail\":\"timed out after 1s\",\"data\":{}}]}",
+        fullHealthChecked());
   }
 
   private static void assertJson(String expected, WorkspacesRunnerMessage frame) {
@@ -260,6 +292,32 @@ class WorkspacesRunnerCodecTest {
             7,
             "spec",
             Map.of("image", IMAGE, "mounts", List.of(Map.of("volume", "M2", "target", "rel")))));
+  }
+
+  @Test
+  void theOriginalHealthFramesStillReadAndAreStillWrittenByteForByte() {
+    // What a peer older than requestId/checks sends: both read, with the new fields absent.
+    assertEquals(new HealthCheck(null), CODEC.decode(Map.of("type", "healthCheck")));
+    assertEquals(
+        new HealthChecked(true, "fine", null, List.of()),
+        CODEC.decode(Map.of("type", "healthChecked", "ok", true, "detail", "fine")));
+    // And what it reads from this one when the new fields are absent is the original spelling.
+    assertJson("{\"type\":\"healthCheck\"}", new HealthCheck());
+    assertJson(
+        "{\"type\":\"healthChecked\",\"ok\":true,\"detail\":\"fine\"}",
+        new HealthChecked(true, "fine", null, List.of()));
+    // A check with no data reads as one with an empty object.
+    assertEquals(
+        new HealthChecked(
+            false, null, "req-4", List.of(new CheckResult("docker", false, null, Map.of()))),
+        CODEC.decode(
+            Map.of(
+                "type",
+                "healthChecked",
+                "requestId",
+                "req-4",
+                "checks",
+                List.of(Map.of("name", "docker")))));
   }
 
   @Test

@@ -13,6 +13,7 @@ import eu.wohlben.qits.runner.toolkit.RunnerDomain;
 import eu.wohlben.qits.runner.toolkit.RunnerIdentity;
 import eu.wohlben.qits.runner.toolkit.RunnerSession;
 import eu.wohlben.qits.runner.toolkit.RunnerSettings;
+import eu.wohlben.qits.workspacesrunner.health.HealthChecks;
 import eu.wohlben.qits.workspacesrunner.protocol.Delete;
 import eu.wohlben.qits.workspacesrunner.protocol.Deleted;
 import eu.wohlben.qits.workspacesrunner.protocol.Estate;
@@ -33,6 +34,7 @@ import eu.wohlben.qits.workspacesrunner.protocol.WorkspacesRunnerMessage;
 import java.nio.file.Path;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -124,6 +126,7 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
   private final WorkspaceLauncher launcher;
   private final NodeHealthCheck healthCheck;
   private final LoginProbe loginProbe;
+  private final HealthChecks healthChecks;
   private final Timing timing;
   private final Clock clock;
 
@@ -163,6 +166,14 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
   /** Between this session's {@code Ack} and its loss: when inventories and exits are sent. */
   private volatile boolean live;
 
+  /** When this session's {@code Ack} arrived, and the slots it gave; null before the first. */
+  private volatile Instant connectedSince;
+
+  private volatile Integer ackSlots;
+
+  /** The last login probe's answer, for the health check's {@code login}; null before one. */
+  private volatile LoginState lastLogin;
+
   /** Set once this runner learns it was deleted: from then on it starts nothing. */
   private volatile boolean decommissioning;
 
@@ -198,6 +209,16 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
             new RunnerDocker(identity, settings.dockerBinary(), LoginProbe.DEADLINE),
             volumes,
             clock);
+    this.healthChecks = new HealthChecks(docker.deadline().multipliedBy(3));
+    WorkspacesHealthChecks.registerDefaults(
+        healthChecks,
+        docker,
+        healthCheck,
+        timing.healthWindow(),
+        new NodeInventoryCheck(identity, settings.runnerId(), docker),
+        this::workspaceImage,
+        () -> lastLogin,
+        () -> new WorkspacesHealthChecks.SessionFacts(live, connectedSince, ackSlots));
     this.timing = timing;
     this.clock = clock;
     ScheduledThreadPoolExecutor pool =
@@ -248,6 +269,8 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
       return;
     }
     live = true;
+    connectedSince = clock.instant();
+    ackSlots = ack.slots();
     ContainersDriver.OpResult home = volumes.ensureDotClaude(session.driver(), docker.deadline());
     if (!home.ok()) {
       LOG.warnf("workspaces-runner could not create its agent home: %s", home.detail());
@@ -282,7 +305,7 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
       case Stop stop -> onStop(stop, session);
       case Delete delete -> onDelete(delete, session);
       case ProbeLogin _ -> probeLogin(session);
-      case HealthCheck _ -> onHealthCheck(session);
+      case HealthCheck check -> onHealthCheck(check, session);
       default ->
           // inventory, launched, launchFailed, stopped, deleted, exited, loginState and
           // healthChecked are runner → server; a host echoing one is not a conversation this has.
@@ -344,6 +367,7 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
   /** Stop the node's timers; the process ending does the same. For a suite's teardown. */
   void close() {
     timer.shutdownNow();
+    healthChecks.close();
   }
 
   // --- the frames ---------------------------------------------------------------------------------
@@ -506,11 +530,21 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
     sendInventory(session, true);
   }
 
-  private void onHealthCheck(RunnerSession session) {
+  /**
+   * Every registered check (the defaults are {@link WorkspacesHealthChecks}'), each under its own
+   * deadline, answered as one {@code healthChecked} echoing the request id: ok only when every
+   * check is, and every check reported even when another failed.
+   */
+  private void onHealthCheck(HealthCheck check, RunnerSession session) {
     if (decommissioning) {
       return;
     }
-    session.send(healthCheck.run(session, workspaceImage()));
+    session.send(WorkspacesHealthChecks.answer(check.requestId(), healthChecks.run(session)));
+  }
+
+  /** The registry the health check runs; a suite adds a check of its own through it. */
+  HealthChecks healthChecks() {
+    return healthChecks;
   }
 
   /**
@@ -523,6 +557,7 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
       return;
     }
     LoginState state = loginProbe.probe(session.driver(), workspaceImage());
+    lastLogin = state;
     session.send(state);
     boolean absent =
         state.claude() == LoginPresence.ABSENT || state.kimi() == LoginPresence.ABSENT;

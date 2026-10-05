@@ -39,6 +39,8 @@ import eu.wohlben.qits.workspacesrunner.protocol.Launched;
 import eu.wohlben.qits.workspacesrunner.protocol.LoginPresence;
 import eu.wohlben.qits.workspacesrunner.protocol.LoginState;
 import eu.wohlben.qits.workspacesrunner.protocol.Mount;
+import eu.wohlben.qits.workspacesrunner.health.RunnerHealthCheck;
+import eu.wohlben.qits.workspacesrunner.protocol.CheckResult;
 import eu.wohlben.qits.workspacesrunner.protocol.ProbeLogin;
 import eu.wohlben.qits.workspacesrunner.protocol.Stop;
 import eu.wohlben.qits.workspacesrunner.protocol.Stopped;
@@ -117,6 +119,10 @@ class WorkspacesRunnerTest {
   void setUp() throws Exception {
     host = new FakeRunnerHost(vertx, IDENTITY, CODEC);
     docker = new FakeDocker(dockerDir);
+    // What every health check reads besides its own subject: docker's version, and each labelled
+    // volume's creation time (the name falls back to the listed one).
+    docker.answer("version", 0, "27.3.1\n", "");
+    docker.answer("volume-inspect", 0, "|2026-10-01T00:00:00Z|\n", "");
   }
 
   @AfterEach
@@ -674,6 +680,7 @@ class WorkspacesRunnerTest {
     String name = "qits-workspaces-runner-health-check-r1";
     docker.answerFor("image-inspect", WORKSPACE_IMAGE, 1, "", "Error: No such image");
     docker.answerFor("inspect", name, 0, "abc|running/none|2026-10-05T04:38:19Z\n", "");
+    probesAnswer();
     estateThenAck();
     start("t");
     host.await(Hello.class);
@@ -681,7 +688,11 @@ class WorkspacesRunnerTest {
 
     host.send(new HealthCheck());
     HealthChecked checked = host.await(HealthChecked.class);
-    assertTrue(checked.ok(), checked.detail());
+    // The fake's image inspect never finds the image, even after the pull, so workspaceImage
+    // reports it unreadable; the self-test is the check this case is about.
+    CheckResult selfTest =
+        checked.checks().stream().filter(c -> c.name().equals("selfTest")).findFirst().orElseThrow();
+    assertTrue(selfTest.ok(), selfTest.detail());
 
     List<List<String>> calls = docker.calls();
     List<String> pull =
@@ -711,6 +722,7 @@ class WorkspacesRunnerTest {
   void aHealthCheckWhoseImageNeverRunsFailsAndStillRemovesItsContainer() throws Exception {
     String name = "qits-workspaces-runner-health-check-r1";
     docker.answerFor("inspect", name, 0, "abc|exited/none|2026-10-05T04:38:19Z\n", "");
+    probesAnswer();
     estateThenAck();
     start("t");
     awaitTrue(() -> WORKSPACE_IMAGE.equals(domain.workspaceImage()));
@@ -735,6 +747,314 @@ class WorkspacesRunnerTest {
     assertFalse(checked.ok());
     assertTrue(checked.detail().contains("no estate"), checked.detail());
     assertTrue(docker.calls("run").isEmpty());
+  }
+
+  // ---- the named checks ----------------------------------------------------------------------------
+
+  @Test
+  void aHealthCheckRunsEveryDefaultCheckEchoesTheRequestIdAndReportsTheNodesLabelledObjects()
+      throws Exception {
+    String probe = "qits-workspaces-runner-health-check-r1";
+    String self = IDENTITY.containerName(RUNNER_ID, WorkspacesRunnerBinary.VERSION);
+    NodeVolumes nodeVolumes = new NodeVolumes(IDENTITY, RUNNER_ID);
+    Map<String, String> ws1 =
+        Map.of("qits.workspaces.runner", RUNNER_ID, "qits.workspaces.runner.workspace", "1");
+    docker.container(ws(1), ws1);
+    docker.volume(ws(1), ws1);
+    docker.volume(nodeVolumes.m2(), Map.of("qits.workspaces.runner", RUNNER_ID));
+    docker.container(self, Map.of(IDENTITY.processLabel(), RUNNER_ID));
+    // The node's other tenants: a CI runner's container, another workspaces runner's workspace and
+    // its own process, and a person's volume.
+    docker.container("qits-ci-runner-x", Map.of("qits.ci.runner", RUNNER_ID));
+    docker.container(
+        "qits-workspaces-runner-ws-9-r2",
+        Map.of("qits.workspaces.runner", "r2", "qits.workspaces.runner.workspace", "9"));
+    docker.container("qits-workspaces-runner-r2-1", Map.of(IDENTITY.processLabel(), "r2"));
+    docker.volume("my-data", Map.of());
+    // Row 1 is owned by the estate, so it stays. Its container as the inventory's inspect answers it; the exit watch's reading of the
+    // same answer sees no row and leaves it alone.
+    docker.answerFor(
+        "inspect",
+        ws(1),
+        0,
+        "c1full|/" + ws(1) + "|exited|2026-10-05T04:00:00.123456789Z|2026-10-05T04:30:00Z|137|"
+            + WORKSPACE_IMAGE
+            + "|1|<no value>\n",
+        "");
+    docker.answerFor(
+        "inspect",
+        self,
+        0,
+        "selffull|/" + self + "|running|2026-10-05T03:00:00Z|" + NodeInventoryCheck.ZERO_TIME + "|0|"
+            + "registry.example:5000/qits/qits-workspaces-runner:"
+            + WorkspacesRunnerBinary.VERSION
+            + "|<no value>|"
+            + WorkspacesRunnerBinary.VERSION
+            + "\n",
+        "");
+    docker.answerFor("inspect", probe, 0, "abc|running/none|2026-10-05T04:38:19Z\n", "");
+    docker.answerFor("volume-inspect", ws(1), 0, ws(1) + "|2026-10-04T10:00:00+02:00|1\n", "");
+    docker.answerFor(
+        "volume-inspect", nodeVolumes.m2(), 0, nodeVolumes.m2() + "|2026-10-01T09:00:00Z|\n", "");
+    docker.answerFor(
+        "image-inspect", WORKSPACE_IMAGE, 0, "sha256:ws|2026-10-04T08:00:00Z\n", "");
+    probesAnswer();
+    estateThenAck();
+    start("t");
+    host.await(LoginState.class);
+    awaitTrue(() -> docker.volumes().containsKey(nodeVolumes.dotClaude()));
+    Map<String, Map<String, String>> volumesBefore = docker.volumes();
+    int callsBefore = docker.calls().size();
+
+    host.send(new HealthCheck("req-7"));
+    HealthChecked checked = host.await(HealthChecked.class);
+
+    assertEquals("req-7", checked.requestId());
+    assertEquals(
+        List.of("docker", "workspaceImage", "selfTest", "nodeInventory", "login", "session"),
+        checked.checks().stream().map(CheckResult::name).toList());
+    assertTrue(checked.ok(), checked.detail());
+    assertTrue(checked.checks().stream().allMatch(CheckResult::ok), checked.checks()::toString);
+
+    assertJsonEquals(Map.of("serverVersion", "27.3.1"), check(checked, "docker").data());
+    Map<String, Object> image = new LinkedHashMap<>();
+    image.put("image", WORKSPACE_IMAGE);
+    image.put("pulled", false);
+    image.put("id", "sha256:ws");
+    image.put("created", "2026-10-04T08:00:00Z");
+    assertJsonEquals(image, check(checked, "workspaceImage").data());
+    assertJsonEquals(Map.of("image", WORKSPACE_IMAGE), check(checked, "selfTest").data());
+
+    Map<String, Object> container = new LinkedHashMap<>();
+    container.put("name", ws(1));
+    container.put("id", "c1full");
+    container.put("rowId", 1L);
+    container.put("state", "exited");
+    container.put("startedAt", "2026-10-05T04:00:00.123456789Z");
+    container.put("finishedAt", "2026-10-05T04:30:00Z");
+    container.put("exitCode", 137);
+    container.put("image", WORKSPACE_IMAGE);
+    Map<String, Object> runnerContainer = new LinkedHashMap<>();
+    runnerContainer.put("name", self);
+    runnerContainer.put("id", "selffull");
+    runnerContainer.put("version", WorkspacesRunnerBinary.VERSION);
+    runnerContainer.put("startedAt", "2026-10-05T03:00:00Z");
+    Map<String, Object> inventory = new LinkedHashMap<>();
+    inventory.put("containers", List.of(container));
+    inventory.put(
+        "volumes",
+        List.of(
+            volume(nodeVolumes.dotClaude(), null, "2026-10-01T00:00:00Z"),
+            volume(nodeVolumes.m2(), null, "2026-10-01T09:00:00Z"),
+            volume(ws(1), 1L, "2026-10-04T10:00:00+02:00")));
+    inventory.put("runnerContainer", runnerContainer);
+    assertJsonEquals(inventory, check(checked, "nodeInventory").data());
+
+    Map<String, Object> login = new LinkedHashMap<>();
+    login.put("claude", "PRESENT");
+    login.put("kimi", "PRESENT");
+    login.put("checkedAt", NOW.toString());
+    assertJsonEquals(login, check(checked, "login").data());
+    Map<String, Object> session = new LinkedHashMap<>();
+    session.put("connected", true);
+    session.put("connectedSince", NOW.toString());
+    session.put("slots", 1);
+    session.put("held", List.of());
+    assertJsonEquals(session, check(checked, "session").data());
+
+    // Only the self-test writes, and only its own container; nothing else of the node moves.
+    List<List<String>> all = docker.calls();
+    for (List<String> call : all.subList(callsBefore, all.size())) {
+      List<String> c = FakeDocker.withoutConfig(call);
+      List<String> verb =
+          c.size() > 1 && Set.of("volume", "container", "image").contains(c.getFirst())
+              ? c.subList(0, 2)
+              : c.subList(0, 1);
+      if (WRITES.contains(verb)) {
+        assertTrue(c.contains(probe), () -> "only the self-test writes, to its own container: " + c);
+      }
+      for (String foreign :
+          List.of(
+              "qits-ci-runner-x",
+              "qits-workspaces-runner-ws-9-r2",
+              "qits-workspaces-runner-r2-1",
+              "my-data")) {
+        assertFalse(c.contains(foreign), () -> "touched " + foreign + ": " + c);
+      }
+    }
+    assertTrue(docker.calls("pull").isEmpty(), "an image already here is not pulled");
+    assertEquals(volumesBefore, docker.volumes(), "no volume created or removed");
+    assertTrue(docker.containers().containsKey(ws(1)), "the row's container is untouched");
+    assertFalse(docker.containers().containsKey(probe), "the self-test removed its container");
+  }
+
+  @Test
+  void theReadOnlyChecksWriteNothingToDocker() throws Exception {
+    docker.container(
+        ws(5), Map.of("qits.workspaces.runner", RUNNER_ID, "qits.workspaces.runner.workspace", "5"));
+    docker.answerFor(
+        "inspect",
+        ws(5),
+        0,
+        "c5full|/" + ws(5) + "|running|2026-10-05T04:00:00Z|" + NodeInventoryCheck.ZERO_TIME + "|0|"
+            + WORKSPACE_IMAGE
+            + "|5|<no value>\n",
+        "");
+    ackWith(1, 0);
+    start("t");
+    host.await(Hello.class);
+    awaitTrue(
+        () -> docker.volumes().containsKey(new NodeVolumes(IDENTITY, RUNNER_ID).dotClaude()));
+    Map<String, Map<String, String>> containersBefore = docker.containers();
+    Map<String, Map<String, String>> volumesBefore = docker.volumes();
+    int callsBefore = docker.calls().size();
+
+    for (String name : List.of("docker", "nodeInventory", "login", "session")) {
+      assertTrue(domain.healthChecks().names().contains(name), name);
+    }
+    // No estate, so workspaceImage and selfTest fail at once without touching docker; the four
+    // read-only checks run in full.
+    host.send(new HealthCheck("req-ro"));
+    HealthChecked checked = host.await(HealthChecked.class);
+    assertFalse(checked.ok());
+    assertTrue(check(checked, "nodeInventory").ok(), check(checked, "nodeInventory").detail());
+    assertEquals(
+        "c5full",
+        ((Map<?, ?>) ((List<?>) check(checked, "nodeInventory").data().get("containers")).getFirst())
+            .get("id"));
+
+    List<List<String>> all = docker.calls();
+    for (List<String> call : all.subList(callsBefore, all.size())) {
+      List<String> c = FakeDocker.withoutConfig(call);
+      List<String> verb =
+          c.size() > 1 && Set.of("volume", "container", "image").contains(c.getFirst())
+              ? c.subList(0, 2)
+              : c.subList(0, 1);
+      // The toolkit's own housekeeping may prune images beside the check; a check never writes.
+      if (!verb.equals(List.of("image", "prune"))) {
+        assertFalse(WRITES.contains(verb), () -> "a read-only check wrote: " + c);
+      }
+    }
+    assertEquals(containersBefore, docker.containers());
+    assertEquals(volumesBefore, docker.volumes());
+  }
+
+  @Test
+  void aCheckThatThrowsOrHangsFailsTheAnswerAndEveryOtherCheckIsStillReported() throws Exception {
+    probesAnswer();
+    estateThenAck();
+    start("t");
+    host.await(LoginState.class);
+    domain
+        .healthChecks()
+        .register(
+            new RunnerHealthCheck() {
+              @Override
+              public String name() {
+                return "throws";
+              }
+
+              @Override
+              public Result run(eu.wohlben.qits.runner.toolkit.RunnerSession session) {
+                throw new IllegalStateException("broken on purpose");
+              }
+            })
+        .register(
+            new RunnerHealthCheck() {
+              @Override
+              public String name() {
+                return "hangs";
+              }
+
+              @Override
+              public Duration deadline() {
+                return Duration.ofMillis(200);
+              }
+
+              @Override
+              public Result run(eu.wohlben.qits.runner.toolkit.RunnerSession session)
+                  throws Exception {
+                Thread.sleep(60_000);
+                return Result.ok("never", Map.of());
+              }
+            });
+    docker.answerFor(
+        "inspect",
+        "qits-workspaces-runner-health-check-r1",
+        0,
+        "abc|running/none|2026-10-05T04:38:19Z\n",
+        "");
+
+    host.send(new HealthCheck());
+    HealthChecked checked = host.await(HealthChecked.class);
+
+    assertFalse(checked.ok());
+    assertEquals(null, checked.requestId(), "an id-less request gets an id-less answer");
+    assertEquals(
+        List.of(
+            "docker",
+            "workspaceImage",
+            "selfTest",
+            "nodeInventory",
+            "login",
+            "session",
+            "throws",
+            "hangs"),
+        checked.checks().stream().map(CheckResult::name).toList());
+    for (String passing :
+        List.of("docker", "workspaceImage", "selfTest", "nodeInventory", "login", "session")) {
+      assertTrue(check(checked, passing).ok(), () -> passing + ": " + check(checked, passing));
+    }
+    assertFalse(check(checked, "throws").ok());
+    assertTrue(check(checked, "throws").detail().contains("broken on purpose"));
+    assertFalse(check(checked, "hangs").ok());
+    assertTrue(check(checked, "hangs").detail().contains("timed out"), check(checked, "hangs")::detail);
+    assertTrue(checked.detail().contains("throws: "), checked.detail());
+    assertTrue(checked.detail().contains("hangs: "), checked.detail());
+  }
+
+  /** Every docker verb that changes a container, a volume or an image on the node. */
+  private static final Set<List<String>> WRITES =
+      Set.of(
+          List.of("run"),
+          List.of("create"),
+          List.of("start"),
+          List.of("restart"),
+          List.of("stop"),
+          List.of("kill"),
+          List.of("rm"),
+          List.of("update"),
+          List.of("rename"),
+          List.of("exec"),
+          List.of("pull"),
+          List.of("volume", "create"),
+          List.of("volume", "rm"),
+          List.of("volume", "prune"),
+          List.of("container", "prune"),
+          List.of("image", "rm"),
+          List.of("image", "prune"));
+
+  private static CheckResult check(HealthChecked checked, String name) {
+    return checked.checks().stream()
+        .filter(c -> c.name().equals(name))
+        .findFirst()
+        .orElseThrow(() -> new AssertionError("no check " + name + " in " + checked));
+  }
+
+  /**
+   * A check's data as it arrived over the socket — Vert.x's numbers and nested JSON types — against
+   * the map the test expects, compared as JSON.
+   */
+  private static void assertJsonEquals(Map<String, Object> expected, Map<String, Object> actual) {
+    assertEquals(new JsonObject(expected).encode(), new JsonObject(actual).encode());
+  }
+
+  private static Map<String, Object> volume(String name, Long rowId, String createdAt) {
+    Map<String, Object> volume = new LinkedHashMap<>();
+    volume.put("name", name);
+    volume.put("rowId", rowId);
+    volume.put("createdAt", createdAt);
+    return volume;
   }
 
   // ---- rollover ------------------------------------------------------------------------------------

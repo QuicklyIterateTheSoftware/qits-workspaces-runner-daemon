@@ -73,6 +73,16 @@ passes: the runner pulls the pinned workspace image (under its own client, from
 within 30 s and removes it. The log says `workspaces-runner health check passed: …` or why it failed.
 An admin can run the check again, or greenlight the runner, from the Runners page.
 
+The health check is a set of named checks, all run every time and each under its own deadline; it
+passes only when every one does, and a check that throws or hangs fails alone with its error while
+the rest are still reported: `docker` (the daemon answers, its version), `workspaceImage` (the
+estate's image is here — pulled if not — with its id and creation time), `selfTest` (the run above),
+`nodeInventory` (every container and volume under the runner's own labels, with ids, states, start,
+finish and creation times and exit codes, and the runner's own container), `login` (the last probe's
+answer; never a new probe, and never a failure — a login is the operator's) and `session` (connected
+since, the Ack's slots, the rows held). Only `workspaceImage` and `selfTest` write to docker; the
+others only read, so the answer is how a person sees the node without its shell.
+
 ### Logging in the agent CLIs (once per node)
 
 The workspaces on one runner share one agent home: the volume
@@ -247,7 +257,7 @@ this repository's. A row id is a JSON number.
     stop{rowId} → stopped{rowId}      delete{rowId} → deleted{rowId}
     runner → exited{rowId, exitCode}
     probeLogin → loginState{claude, kimi, checkedAt}        (PRESENT | ABSENT | UNKNOWN)
-    healthCheck → healthChecked{ok, detail}
+    healthCheck{requestId?} → healthChecked{ok, detail, requestId?, checks?:[{name, ok, detail, data{}}]}
     upgrade{version, image, sha256} … retire{reason, kind}
     quarantined{reason, since} … reinstated{by}
 

@@ -14,7 +14,7 @@ import eu.wohlben.qits.runner.toolkit.RunnerIdentity;
  *   <li>the health check's throwaway container: {@code qits-workspaces-runner-health-check-<id8>}.
  * </ul>
  *
- * <p>The node volumes ({@code dot-claude}, {@code m2}, {@code pnpm}) are qits-858's and join here.
+ * <p>The node volumes ({@code dot-claude}, {@code m2}, {@code pnpm}) are {@link NodeVolumes}'.
  */
 final class WorkspaceNames {
 

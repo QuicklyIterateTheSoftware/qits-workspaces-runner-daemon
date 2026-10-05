@@ -3,7 +3,6 @@ package eu.wohlben.qits.workspacesrunner;
 import eu.wohlben.qits.containers.driver.ContainersDriver;
 import eu.wohlben.qits.containers.driver.spec.ContainerSpec;
 import eu.wohlben.qits.containers.driver.spec.LifecyclePolicy;
-import eu.wohlben.qits.runner.toolkit.LifecycleArgv;
 import eu.wohlben.qits.runner.toolkit.RunnerDocker;
 import eu.wohlben.qits.runner.toolkit.RunnerSession;
 import eu.wohlben.qits.workspacesrunner.protocol.HealthChecked;
@@ -54,7 +53,7 @@ final class NodeHealthCheck {
     if (image == null || image.isBlank()) {
       return failed("the runner has had no estate yet, so it does not know the workspace image");
     }
-    Optional<String> notHere = ensureImage(session, image);
+    Optional<String> notHere = NodeImages.ensure(docker, session, image);
     if (notHere.isPresent()) {
       return failed(notHere.get());
     }
@@ -96,18 +95,6 @@ final class NodeHealthCheck {
         LOG.warnf("workspaces-runner could not remove its health check %s: %s", name, gone.detail());
       }
     }
-  }
-
-  /** Empty when the image is here (already, or pulled now); else why not. */
-  private Optional<String> ensureImage(RunnerSession session, String image) {
-    try {
-      if (docker.run(LifecycleArgv.imageInspect(docker.binary(), image)).ok()) {
-        return Optional.empty();
-      }
-    } catch (IllegalArgumentException refused) {
-      return Optional.of(refused.getMessage());
-    }
-    return session.registry().pull(image);
   }
 
   /** The last status docker reported, {@code running} as soon as it is. */

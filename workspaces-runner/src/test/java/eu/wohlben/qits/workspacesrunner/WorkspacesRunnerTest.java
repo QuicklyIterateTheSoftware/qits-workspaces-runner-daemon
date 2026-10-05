@@ -11,6 +11,7 @@ import eu.wohlben.qits.runner.protocol.Reserve;
 import eu.wohlben.qits.runner.protocol.Retire;
 import eu.wohlben.qits.runner.protocol.RunnerCapabilities;
 import eu.wohlben.qits.runner.protocol.RunnerCodec;
+import eu.wohlben.qits.runner.protocol.RunnerMessage;
 import eu.wohlben.qits.runner.protocol.RunnerWire;
 import eu.wohlben.qits.runner.protocol.Upgrade;
 import eu.wohlben.qits.runner.toolkit.Decommission;
@@ -28,11 +29,16 @@ import eu.wohlben.qits.runner.toolkit.testing.FakeRunnerHost;
 import eu.wohlben.qits.workspacesrunner.protocol.Delete;
 import eu.wohlben.qits.workspacesrunner.protocol.Deleted;
 import eu.wohlben.qits.workspacesrunner.protocol.Estate;
+import eu.wohlben.qits.workspacesrunner.protocol.Exited;
 import eu.wohlben.qits.workspacesrunner.protocol.HealthCheck;
 import eu.wohlben.qits.workspacesrunner.protocol.HealthChecked;
+import eu.wohlben.qits.workspacesrunner.protocol.HeldContainer;
+import eu.wohlben.qits.workspacesrunner.protocol.Inventory;
 import eu.wohlben.qits.workspacesrunner.protocol.LaunchFailed;
+import eu.wohlben.qits.workspacesrunner.protocol.Launched;
 import eu.wohlben.qits.workspacesrunner.protocol.LoginPresence;
 import eu.wohlben.qits.workspacesrunner.protocol.LoginState;
+import eu.wohlben.qits.workspacesrunner.protocol.Mount;
 import eu.wohlben.qits.workspacesrunner.protocol.ProbeLogin;
 import eu.wohlben.qits.workspacesrunner.protocol.Stop;
 import eu.wohlben.qits.workspacesrunner.protocol.Stopped;
@@ -55,6 +61,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -112,6 +119,9 @@ class WorkspacesRunnerTest {
   @AfterEach
   void tearDown() throws Exception {
     stopRunner();
+    if (domain != null) {
+      domain.close();
+    }
     host.close();
     vertx.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
   }
@@ -173,57 +183,292 @@ class WorkspacesRunnerTest {
     assertEquals(1, host.registerPaths.size(), "a redial is no registration");
   }
 
-  // ---- the workspace frames this version answers -------------------------------------------------
+  // ---- take: the three rungs ----------------------------------------------------------------------
 
   @Test
-  void aTakeIsAnsweredLaunchFailedAtOnceStartsNothingAndHoldsNoSlot() throws Exception {
+  void aTakeOfANewRowPullsMakesItsVolumesAndRunsItUnderTheRunnersOwnLabels() throws Exception {
+    docker.answerFor("image-inspect", WORKSPACE_IMAGE, 1, "", "Error: No such image");
+    takeOnFirstReserve(5, fullSpec());
+    start("t");
+
+    assertEquals(new Launched(5, ws(5)), host.await(Launched.class));
+    String hash = WorkspaceLauncher.specHash(fullSpec());
+    List<String> run = runOf(ws(5));
+    assertEquals(
+        List.of(
+            "run",
+            "-d",
+            "--init",
+            "--name",
+            ws(5),
+            "--network",
+            "bridge",
+            "--user",
+            "1000",
+            "--label",
+            "qits.repository=qits-qits",
+            "--label",
+            "qits.workspace=w5",
+            "--label",
+            "qits.workspaces.runner=r1",
+            "--label",
+            "qits.workspaces.runner.spec=" + hash,
+            "--label",
+            "qits.workspaces.runner.workspace=5",
+            "--memory",
+            "4g",
+            "--memory-swap",
+            "4g",
+            "--pids-limit",
+            "512",
+            "--cpus",
+            "2",
+            "--oom-score-adj",
+            "500",
+            "-v",
+            ws(5) + ":/workspace",
+            "-v",
+            "qits-workspaces-runner-dot-claude-r1:/claude-home",
+            "-v",
+            "qits-workspaces-runner-m2-r1:/caches/m2",
+            "-v",
+            "qits-workspaces-runner-pnpm-r1:/caches/pnpm",
+            "-e",
+            "QITS_WORKSPACE_DAEMON_WORKSPACE_ID=w5",
+            "-e",
+            "TZ=UTC",
+            WORKSPACE_IMAGE),
+        run,
+        "no --restart (docker's `no`), the default bridge, uid 1000, the runner's labels");
+    List<List<String>> calls = docker.calls().stream().map(FakeDocker::withoutConfig).toList();
+    assertTrue(
+        calls.indexOf(List.of("pull", WORKSPACE_IMAGE)) >= 0
+            && calls.indexOf(List.of("pull", WORKSPACE_IMAGE)) < calls.indexOf(run),
+        "pulled under the runner's login before it is run: " + calls);
+    assertEquals(
+        Map.of("qits.workspaces.runner", RUNNER_ID, "qits.workspaces.runner.workspace", "5"),
+        docker.volumes().get(ws(5)));
+    for (String node :
+        List.of(
+            "qits-workspaces-runner-dot-claude-r1",
+            "qits-workspaces-runner-m2-r1",
+            "qits-workspaces-runner-pnpm-r1")) {
+      assertEquals(Map.of("qits.workspaces.runner", RUNNER_ID), docker.volumes().get(node), node);
+    }
+    awaitTrue(() -> runner.session().held().equals(List.of("5")));
+    awaitTrue(
+        () -> {
+          List<RunnerMessage> received = List.copyOf(host.received);
+          int launched = indexOf(received, Launched.class, 0);
+          return launched >= 0 && indexOf(received, Inventory.class, launched) > launched;
+        });
+  }
+
+  @Test
+  void aRunningContainerOfTheRowIsLaunchedAsItIs() throws Exception {
+    seen(5, "running", 0, "any");
+    takeOnFirstReserve(5, fullSpec());
+    start("t");
+
+    assertEquals(new Launched(5, "c5"), host.await(Launched.class));
+    assertTrue(runsOf(ws(5)).isEmpty(), docker.calls()::toString);
+    assertFalse(touched("start", ws(5)) || touched("rm", ws(5)), docker.calls()::toString);
+  }
+
+  @Test
+  void aStoppedContainerOfTheSameSpecIsStartedAgain() throws Exception {
+    seen(5, "exited", 0, WorkspaceLauncher.specHash(fullSpec()));
+    takeOnFirstReserve(5, fullSpec());
+    start("t");
+
+    assertEquals(new Launched(5, "c5"), host.await(Launched.class));
+    assertTrue(has(docker.calls(), List.of("start", ws(5))), docker.calls()::toString);
+    assertTrue(runsOf(ws(5)).isEmpty(), "the same container, not a second one");
+    assertFalse(touched("rm", ws(5)), docker.calls()::toString);
+  }
+
+  @Test
+  void aContainerOfAnotherSpecIsRecreatedAndItsVolumeKept() throws Exception {
+    seen(5, "exited", 137, "an-older-spec");
+    Map<String, String> labels =
+        Map.of("qits.workspaces.runner", RUNNER_ID, "qits.workspaces.runner.workspace", "5");
+    docker.volume(ws(5), labels);
+    takeOnFirstReserve(5, fullSpec());
+    start("t");
+
+    host.await(Launched.class);
+    List<List<String>> calls = docker.calls();
+    int removed = calls.indexOf(List.of("rm", "-f", ws(5)));
+    assertTrue(removed >= 0, calls::toString);
+    assertTrue(removed < calls.indexOf(runOf(ws(5))), "removed, then created: " + calls);
+    assertTrue(
+        runOf(ws(5)).contains("qits.workspaces.runner.spec=" + WorkspaceLauncher.specHash(fullSpec())));
+    assertEquals(labels, docker.volumes().get(ws(5)), "the volume is the work; it stays");
+    assertTrue(docker.calls("volume").stream().noneMatch(c -> c.contains("rm")), calls::toString);
+  }
+
+  @Test
+  void aTakeDockerRefusesIsLaunchFailedWithDockersLastWordsAndHoldsNoSlot() throws Exception {
+    docker.answerFor(
+        "run", WORKSPACE_IMAGE, 125, "", "docker: Error response from daemon: no space left on device.");
     host.script =
         (h, message) -> {
           if (message instanceof Hello) {
             h.send(new Ack(1, 1));
             h.send(new Backlog(2));
           } else if (message instanceof Reserve && h.all(Reserve.class).size() <= 2) {
-            h.send(new Take(h.all(Reserve.class).size(), spec()));
+            h.send(new Take(h.all(Reserve.class).size(), fullSpec()));
           }
         };
     start("t");
 
-    // The second Reserve comes because the first take freed what it never really held: the
-    // runner keeps asking, and every take it cannot launch is failed at once rather than stuck.
     LaunchFailed first = host.await(LaunchFailed.class, 1);
     assertEquals(1L, first.rowId());
-    assertEquals(WorkspacesRunnerDomain.TAKE_UNSUPPORTED, first.detail());
+    assertTrue(first.detail().contains("no space left on device"), first.detail());
+    // The second Reserve proves the refused take was answered to the ledger (taken, released).
     assertEquals(2L, host.await(LaunchFailed.class, 2).rowId());
     awaitTrue(() -> runner.session().held().isEmpty());
-    assertTrue(docker.calls("run").isEmpty(), "nothing is started: " + docker.calls());
-    assertTrue(docker.calls("pull").isEmpty(), "nothing is pulled: " + docker.calls());
+  }
+
+  // ---- stop, delete, exited and the slots ----------------------------------------------------------
+
+  @Test
+  void stopStopsTheContainerAnswersStoppedAndFreesTheSlotAndAnAbsentRowIsStoppedToo()
+      throws Exception {
+    seen(5, "running", 0, "h5");
+    ackWith(1, 0);
+    start("t");
+    awaitTrue(() -> runner.session().held().equals(List.of("5")));
+
+    host.send(new Stop(5));
+    assertEquals(new Stopped(5), host.await(Stopped.class));
+    assertTrue(has(docker.calls(), List.of("stop", ws(5))), docker.calls()::toString);
+    awaitTrue(() -> runner.session().held().isEmpty());
+    assertTrue(docker.containers().containsKey(ws(5)), "stopped, not removed");
+
+    host.send(new Stop(9));
+    assertEquals(new Stopped(9), host.await(Stopped.class, 2));
+    assertFalse(touched("stop", ws(9)), "nothing to stop");
   }
 
   @Test
-  void stopAndDeleteOfAnAbsentRowAreAnsweredAndAPresentContainerIsLeftAlone() throws Exception {
-    String absent = "qits-workspaces-runner-ws-7-r1";
-    String present = "qits-workspaces-runner-ws-8-r1";
-    docker.answerFor("inspect", absent, 1, "", "Error: No such object: " + absent);
-    docker.answerFor("inspect", present, 0, "c8|running/none|2026-10-05T04:00:00Z\n", "");
-    docker.container(present, Map.of("qits.workspaces.runner", RUNNER_ID));
+  void deleteRemovesTheContainerAndItsVolumeOnlyAndAnAbsentRowIsDeletedToo() throws Exception {
+    seen(5, "exited", 0, "h5");
+    docker.volume(
+        ws(5), Map.of("qits.workspaces.runner", RUNNER_ID, "qits.workspaces.runner.workspace", "5"));
     ackWith(1, 0);
     start("t");
+    host.await(Inventory.class);
+
+    host.send(new Delete(5));
+    assertEquals(new Deleted(5), host.await(Deleted.class));
+    assertFalse(docker.containers().containsKey(ws(5)));
+    assertFalse(docker.volumes().containsKey(ws(5)));
+    assertTrue(
+        docker.volumes().containsKey("qits-workspaces-runner-dot-claude-r1"),
+        "the node's agent home is no row's");
+
+    host.send(new Delete(9));
+    assertEquals(new Deleted(9), host.await(Deleted.class, 2));
+  }
+
+  @Test
+  void runningContainersHoldTheirSlotsFromTheSessionStartAndAnExitFreesOne() throws Exception {
+    seen(1, "running", 0, "h1");
+    seen(2, "running", 0, "h2");
+    ackWith(2, 1);
+    start("t");
     host.await(Hello.class);
+    awaitTrue(() -> runner.session().held().equals(List.of("1", "2")));
+    Thread.sleep(500);
+    assertTrue(host.all(Reserve.class).isEmpty(), "two running workspaces fill two slots");
 
-    host.send(new Stop(7));
-    host.send(new Delete(7));
-    assertEquals(new Stopped(7), host.await(Stopped.class));
-    assertEquals(new Deleted(7), host.await(Deleted.class));
+    seen(2, "exited", 137, "h2");
+    assertEquals(new Exited(2, 137), host.await(Exited.class));
+    host.await(Reserve.class);
+    assertEquals(List.of("1"), runner.session().held());
+    awaitTrue(
+        () ->
+            host.all(Inventory.class).getLast().containers()
+                .equals(
+                    List.of(new HeldContainer(1, true, "h1"), new HeldContainer(2, false, "h2"))));
+    assertEquals(1, host.all(Exited.class).size(), "an exit is said once");
+  }
 
-    host.send(new Stop(8));
-    host.send(new Delete(8));
-    awaitCall(c -> c.stream().filter(call -> call.contains(present)).count() >= 2);
-    Thread.sleep(300);
-    assertEquals(1, host.all(Stopped.class).size(), "no answer that is not true");
-    assertEquals(1, host.all(Deleted.class).size(), "no answer that is not true");
-    assertTrue(docker.containers().containsKey(present));
-    assertTrue(docker.calls("stop").isEmpty(), docker.calls()::toString);
+  // ---- the estate ----------------------------------------------------------------------------------
+
+  @Test
+  void theEstateRemovesOnlyUnownedLabelledObjectsAndNothingBeforeIt() throws Exception {
+    housekeepingMillis = 200;
+    probesAnswer();
+    seen(1, "running", 0, "h1");
+    seen(3, "exited", 0, "h3");
+    Map<String, String> row1 =
+        Map.of("qits.workspaces.runner", RUNNER_ID, "qits.workspaces.runner.workspace", "1");
+    Map<String, String> row3 =
+        Map.of("qits.workspaces.runner", RUNNER_ID, "qits.workspaces.runner.workspace", "3");
+    Map<String, String> otherRunners =
+        Map.of("qits.workspaces.runner", "r2", "qits.workspaces.runner.workspace", "4");
+    docker.volume(ws(1), row1);
+    docker.volume(ws(3), row3);
+    // The node's other tenants: names like ours, without our label.
+    docker.container("qits-workspaces-runner-ws-3-r1-copy", Map.of());
+    docker.container("qits-workspaces-runner-ws-4-r2", otherRunners);
+    docker.volume("qits-workspaces-runner-ws-9-r1", Map.of());
+    docker.volume("qits-workspaces-runner-ws-4-r2", otherRunners);
+    ackWith(1, 0);
+    start("t");
+    host.await(Inventory.class);
+
+    // Several housekeeping passes and exit watches, and no estate: nothing goes.
+    Thread.sleep(1_000);
+    Set<String> containersBefore =
+        Set.of(ws(1), ws(3), "qits-workspaces-runner-ws-3-r1-copy", "qits-workspaces-runner-ws-4-r2");
+    assertEquals(containersBefore, docker.containers().keySet());
+    assertTrue(docker.volumes().keySet().containsAll(Set.of(ws(1), ws(3))));
     assertTrue(docker.calls("rm").isEmpty(), docker.calls()::toString);
+
+    host.send(new Estate(List.of(1L), WORKSPACE_IMAGE));
+    awaitTrue(() -> !docker.containers().containsKey(ws(3)));
+    awaitTrue(() -> !docker.volumes().containsKey(ws(3)));
+
+    assertEquals(
+        Set.of(ws(1), "qits-workspaces-runner-ws-3-r1-copy", "qits-workspaces-runner-ws-4-r2"),
+        docker.containers().keySet());
+    assertEquals(
+        Set.of(
+            ws(1),
+            "qits-workspaces-runner-dot-claude-r1",
+            "qits-workspaces-runner-ws-9-r1",
+            "qits-workspaces-runner-ws-4-r2"),
+        docker.volumes().keySet());
+    awaitTrue(
+        () ->
+            host.all(Inventory.class).stream()
+                .anyMatch(
+                    i ->
+                        i.containers().equals(List.of(new HeldContainer(1, true, "h1")))
+                            && "qits-workspaces-runner-dot-claude-r1".equals(i.dotClaudeVolume())));
+  }
+
+  @Test
+  void everyEstatePullsTheWorkspaceImageOnlyWhenItIsNotHere() throws Exception {
+    probesAnswer();
+    estateThenAck();
+    start("t");
+    host.await(Inventory.class, 2);
+    assertTrue(docker.calls("pull").isEmpty(), "here already: " + docker.calls());
+
+    docker.answerFor("image-inspect", WORKSPACE_IMAGE, 1, "", "Error: No such image");
+    host.send(new Estate(List.of(1L, 2L), WORKSPACE_IMAGE));
+    awaitCall(c -> c.stream().anyMatch(call -> call.contains("pull")));
+    List<String> pull =
+        docker.calls().stream()
+            .filter(c -> c.contains("pull"))
+            .findFirst()
+            .orElseThrow(() -> new AssertionError(docker.calls()));
+    assertEquals("--config", pull.getFirst(), "pulled under the runner's own throwaway login");
+    assertEquals(List.of("pull", WORKSPACE_IMAGE), FakeDocker.withoutConfig(pull));
   }
 
   @Test
@@ -260,7 +505,7 @@ class WorkspacesRunnerTest {
         calls.stream().filter(c -> c.contains("pull")).findFirst().orElseThrow(() -> new AssertionError(calls));
     assertEquals("--config", pull.getFirst(), "pulled under the runner's own throwaway login");
     assertEquals(List.of("pull", WORKSPACE_IMAGE), FakeDocker.withoutConfig(pull));
-    List<String> run = docker.calls("run").getFirst();
+    List<String> run = runOf(name);
     assertEquals(
         List.of(
             "run",
@@ -333,10 +578,9 @@ class WorkspacesRunnerTest {
     runner = null;
     assertTrue(docker.containers().containsKey("qits-workspaces-runner-ws-1-r1"));
     assertTrue(docker.containers().containsKey("qits-workspaces-runner-ws-2-r1"));
-    for (List<String> call : docker.calls()) {
-      assertFalse(
-          call.stream().anyMatch(a -> a.startsWith("qits-workspaces-runner-ws-")),
-          "a workspace container was touched: " + call);
+    for (String verb : List.of("stop", "rm", "start", "update")) {
+      assertFalse(touched(verb, "qits-workspaces-runner-ws-1-r1"), docker.calls()::toString);
+      assertFalse(touched(verb, "qits-workspaces-runner-ws-2-r1"), docker.calls()::toString);
     }
     assertTrue(
         has(docker.calls(), List.of("update", "--restart=no", SELF)), docker.calls()::toString);
@@ -374,8 +618,9 @@ class WorkspacesRunnerTest {
         Map.of("qits.workspaces.runner", RUNNER_ID, "qits.workspaces.runner.workspace", "1");
     docker.container("qits-workspaces-runner-ws-1-r1", ws1);
     docker.volume("qits-workspaces-runner-ws-1-r1", ws1);
-    docker.volume("qits-workspaces-runner-dot-claude-r1", Map.of("qits.workspaces.runner", RUNNER_ID));
-    docker.volume("qits-workspaces-runner-m2-r1", Map.of("qits.workspaces.runner", RUNNER_ID));
+    NodeVolumes nodeVolumes = new NodeVolumes(IDENTITY, RUNNER_ID);
+    docker.volume(nodeVolumes.m2(), Map.of("qits.workspaces.runner", RUNNER_ID));
+    docker.volume(nodeVolumes.pnpm(), Map.of("qits.workspaces.runner", RUNNER_ID));
     docker.volume(IDENTITY.stateVolume(RUNNER_ID), Map.of());
     // The node's other tenants: a CI runner's step container and a person's own volume.
     docker.container("qits-ci-runner-x", Map.of("qits.ci.runner", RUNNER_ID));
@@ -383,6 +628,11 @@ class WorkspacesRunnerTest {
     ackWith(1, 0);
     start("t");
     host.await(Hello.class);
+    // The agent home — and the login on it — is the runner's own, made labelled at its Ack.
+    awaitTrue(
+        () ->
+            Map.of("qits.workspaces.runner", RUNNER_ID)
+                .equals(docker.volumes().get(nodeVolumes.dotClaude())));
 
     host.send(Retire.deleted("deleted by admin"));
     assertEquals(RunnerExit.OK, exit.get(10, TimeUnit.SECONDS));
@@ -483,6 +733,17 @@ class WorkspacesRunnerTest {
 
   private WorkspacesRunnerDomain domain;
 
+  /** The node's clocks: the health check's, a 100 ms exit watch, and the login cadence. */
+  private WorkspacesRunnerDomain.Timing timing =
+      new WorkspacesRunnerDomain.Timing(
+          Duration.ofMillis(600),
+          Duration.ofMillis(50),
+          Duration.ofMillis(100),
+          Duration.ofSeconds(60),
+          Duration.ofSeconds(60));
+
+  private long housekeepingMillis = TimeUnit.HOURS.toMillis(6);
+
   private Map<String, String> env(String token) {
     Map<String, String> env = new HashMap<>();
     env.put(IDENTITY.env(RunnerSettings.URL), host.base());
@@ -499,12 +760,10 @@ class WorkspacesRunnerTest {
     RunnerSettings settings =
         RunnerSettings.parse(IDENTITY, env(token)::get)
             .withTiming(new RunnerSettings.Timing(10_000, 50, 200, 5_000, 300_000, 5));
-    domain =
-        new WorkspacesRunnerDomain(
-            settings,
-            Duration.ofMillis(600),
-            Duration.ofMillis(50),
-            Clock.fixed(NOW, ZoneOffset.UTC));
+    if (domain != null) {
+      domain.close();
+    }
+    domain = new WorkspacesRunnerDomain(settings, timing, Clock.fixed(NOW, ZoneOffset.UTC));
     runner =
         new RunnerRuntime<>(
             vertx,
@@ -517,7 +776,7 @@ class WorkspacesRunnerTest {
                 Optional.of(SELF),
                 new SelfUpdate.Settings(100, 400, 3_000, 400, 50),
                 new Decommission.Settings(200, 20, 2),
-                Housekeeping.Settings.defaults(),
+                new Housekeeping.Settings(housekeepingMillis),
                 Clock.systemUTC()));
     exit = CompletableFuture.supplyAsync(runner::run);
   }
@@ -551,9 +810,90 @@ class WorkspacesRunnerTest {
         };
   }
 
-  private static WorkspaceSpec spec() {
+  /** Answer the first Reserve with a take of {@code rowId}. */
+  private void takeOnFirstReserve(long rowId, WorkspaceSpec spec) {
+    host.script =
+        (h, message) -> {
+          if (message instanceof Hello) {
+            h.send(new Ack(IDENTITY.capabilityVersion(), 2));
+            h.send(new Backlog(1));
+          } else if (message instanceof Reserve && h.all(Reserve.class).size() == 1) {
+            h.send(new Take(rowId, spec));
+          }
+        };
+  }
+
+  /** What qits-workspaces composes for a runner workspace: no address, no credential. */
+  private static WorkspaceSpec fullSpec() {
+    Map<String, String> env = new LinkedHashMap<>();
+    env.put("TZ", "UTC");
+    env.put("QITS_WORKSPACE_DAEMON_WORKSPACE_ID", "w5");
+    Map<String, String> labels = new LinkedHashMap<>();
+    labels.put("qits.workspace", "w5");
+    labels.put("qits.repository", "qits-qits");
     return new WorkspaceSpec(
-        WORKSPACE_IMAGE, Map.of(), List.of(), Map.of(), null, null, null, null, null, true);
+        WORKSPACE_IMAGE,
+        env,
+        List.of(
+            new Mount(Mount.Volume.WORKSPACE, "/workspace"),
+            new Mount(Mount.Volume.DOT_CLAUDE, "/claude-home"),
+            new Mount(Mount.Volume.M2, "/caches/m2"),
+            new Mount(Mount.Volume.PNPM, "/caches/pnpm")),
+        labels,
+        "4g",
+        "4g",
+        512L,
+        "2",
+        500,
+        true);
+  }
+
+  /** {@code qits-workspaces-runner-ws-<rowId>-r1}: a row's container and volume. */
+  private static String ws(long rowId) {
+    return "qits-workspaces-runner-ws-" + rowId + "-r1";
+  }
+
+  /** The row's container on the node, as docker's inspect answers it from now on. */
+  private void seen(long rowId, String status, int exitCode, String specHash) throws Exception {
+    docker.container(
+        ws(rowId),
+        Map.of(
+            "qits.workspaces.runner",
+            RUNNER_ID,
+            "qits.workspaces.runner.workspace",
+            Long.toString(rowId)));
+    docker.answerFor(
+        "inspect",
+        ws(rowId),
+        0,
+        "c" + rowId + "|" + status + "|" + exitCode + "|" + rowId + "|" + specHash + "\n",
+        "");
+  }
+
+  /** No login probe yet (qits-858). */
+  private void probesAnswer() {}
+
+  private List<List<String>> runsOf(String name) {
+    return docker.calls("run").stream().filter(c -> c.contains(name)).toList();
+  }
+
+  private List<String> runOf(String name) {
+    List<List<String>> runs = runsOf(name);
+    assertFalse(runs.isEmpty(), () -> "no run of " + name + ": " + docker.calls());
+    return runs.getFirst();
+  }
+
+  private boolean touched(String verb, String name) {
+    return docker.calls(verb).stream().anyMatch(c -> c.contains(name));
+  }
+
+  private static int indexOf(List<RunnerMessage> received, Class<?> type, int from) {
+    for (int i = from; i < received.size(); i++) {
+      if (type.isInstance(received.get(i))) {
+        return i;
+      }
+    }
+    return -1;
   }
 
   private int health() {

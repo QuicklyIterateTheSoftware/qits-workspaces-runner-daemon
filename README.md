@@ -81,12 +81,15 @@ The workspaces on one runner share one agent home: the volume
 **once per node**, on the node, and the platform never sees or moves the secret. The Runners page
 shows the login state and the one command; it is
 
-    docker run --rm -it -v <dotClaudeVolume>:/claude-home -e HOME=/claude-home -e CLAUDE_CONFIG_DIR=/claude-home <registry.qits.<d>/qits/workspace:<pin>> claude
+    docker run --rm -it --user 1000 --entrypoint claude -v <dotClaudeVolume>:/claude-home -e HOME=/claude-home -e CLAUDE_CONFIG_DIR=/claude-home <registry.qits.<d>/qits/workspace:<pin>>
 
 — `<dotClaudeVolume>` being `qits-workspaces-runner-dot-claude-<id8>` and the image the workspace
-image qits-workspaces pins. For Kimi Code the same command ends in `kimi login` instead of `claude`:
+image qits-workspaces pins. `--user 1000` is the workspace's own user, not the image's default
+root: a login written as root would be unreadable by the workspace containers that mount the same
+volume. `--entrypoint claude` is needed for the same reason it is on every other command here — the
+image's default entrypoint starts the workspace daemon, not the agent CLI. For Kimi Code:
 
-    docker run --rm -it -v <dotClaudeVolume>:/claude-home -e HOME=/claude-home -e CLAUDE_CONFIG_DIR=/claude-home <registry.qits.<d>/qits/workspace:<pin>> kimi login
+    docker run --rm -it --user 1000 --entrypoint kimi -v <dotClaudeVolume>:/claude-home -e HOME=/claude-home -e KIMI_CODE_HOME=/claude-home/.kimi-code <registry.qits.<d>/qits/workspace:<pin>> login
 
 It runs the workspace image the runner already pulled (it pulls it after every connection when it is
 not here), so it needs no registry login. Then press **re-check** on the Runners page.

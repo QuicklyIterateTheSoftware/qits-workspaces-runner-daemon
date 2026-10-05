@@ -92,8 +92,10 @@ final class LoginProbe {
   }
 
   /**
-   * {@code docker run --rm --label <owner> --entrypoint claude -v <dot-claude>:/claude-home -e
-   * HOME=/claude-home -e CLAUDE_CONFIG_DIR=/claude-home <image> auth status}.
+   * {@code docker run --rm --label <owner> --user 1000 --entrypoint claude -v
+   * <dot-claude>:/claude-home -e HOME=/claude-home -e CLAUDE_CONFIG_DIR=/claude-home <image> auth
+   * status}. The workspace user, not the image's default (root): a login written by this probe as
+   * root would read PRESENT here and still be unreadable by the workspace that actually uses it.
    */
   List<String> claudeArgv(String image) {
     return List.of(
@@ -102,6 +104,8 @@ final class LoginProbe {
         "--rm",
         "--label",
         ownership(),
+        "--user",
+        WorkspaceLauncher.USER,
         "--entrypoint",
         "claude",
         "-v",
@@ -116,8 +120,9 @@ final class LoginProbe {
   }
 
   /**
-   * {@code docker run --rm --label <owner> --entrypoint bash -v <dot-claude>:/claude-home -e
-   * KIMI_CODE_HOME=/claude-home/.kimi-code <image> -c <KIMI_CHECK>}.
+   * {@code docker run --rm --label <owner> --user 1000 --entrypoint bash -v
+   * <dot-claude>:/claude-home -e KIMI_CODE_HOME=/claude-home/.kimi-code <image> -c <KIMI_CHECK>}.
+   * The workspace user, for the same reason {@link #claudeArgv} is.
    */
   List<String> kimiArgv(String image) {
     return List.of(
@@ -126,6 +131,8 @@ final class LoginProbe {
         "--rm",
         "--label",
         ownership(),
+        "--user",
+        WorkspaceLauncher.USER,
         "--entrypoint",
         "bash",
         "-v",

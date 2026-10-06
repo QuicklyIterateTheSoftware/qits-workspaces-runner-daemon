@@ -41,13 +41,11 @@ import java.util.regex.Pattern;
  *
  * <p><b>Node-level</b>: {@code MemTotal} and {@code SwapTotal} from {@code /proc/meminfo} (the
  * runner's own container shares the host's, so this reads the node's, not the runner's cgroup),
- * the node's slots (informational only here), and {@code overcommitted}. <b>The memory limit is
- * not a runner setting this reads</b> — unlike an earlier shape of this check, it draws nothing
- * from an announced, node-wide limit, because that is moving to a per-row field an admin edits in
- * qits-workspaces' own UI (as qits-ci already does), so a runner-wide figure would soon be fiction.
- * Instead {@code overcommitted} is <b>the sum of the running workspaces' own observed {@code
- * memory.max} compared with {@code MemTotal}</b> — what is actually asked of the node right now,
- * read off the containers themselves rather than a config this runner no longer owns a copy of. A
+ * the node's slots (informational only here), and {@code overcommitted}: <b>the sum of the
+ * running workspaces' own observed {@code memory.max} compared with {@code MemTotal}</b> — what is
+ * actually asked of the node right now, read off the containers themselves. The caps are
+ * qits-workspaces' to choose, per runner, and arrive in each take's spec; this runner holds no
+ * copy of them. A
  * workspace reporting {@code "max"} (no cgroup cap at all) contributes nothing to the sum, the same
  * as one this could not read: both are "cannot tell", not zero, so the sum undercounts a node with
  * any uncapped workspace rather than overstating one. {@code overcommitted} is null when nothing

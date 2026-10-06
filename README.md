@@ -192,8 +192,8 @@ ends by itself, and a docker restart does not bring it back behind qits-workspac
 ### Environment
 
 The install script passes the first four; the rest are for an operator with a reason (put them in
-the line's `env …`; the script passes `DOCKER_TIMEOUT` and `ROLLOVER_TIMEOUT` when set). A successor
-inherits whatever its predecessor was given.
+the line's `env …`; the script passes `DOCKER_TIMEOUT`, `ROLLOVER_TIMEOUT` and the two
+`WORKSPACE_MEMORY_*` variables when set). A successor inherits whatever its predecessor was given.
 
 | Variable | Meaning | Default |
 |---|---|---|
@@ -201,6 +201,8 @@ inherits whatever its predecessor was given.
 | `QITS_WORKSPACES_RUNNER_ID` | The runner id the Runners page minted. | required |
 | `QITS_WORKSPACES_RUNNER_REGISTRATION_TOKEN` | One-time registration token, needed until registered; a different one later registers again. | required until registered |
 | `QITS_WORKSPACES_RUNNER_SLOTS` | How many workspaces this machine runs at once. Advertised; the Runners page's number wins. | `1` |
+| `QITS_WORKSPACES_RUNNER_WORKSPACE_MEMORY_LIMIT` | Memory one workspace container may use on this machine, in docker's `--memory` syntax (`8g`). Advertised in the `hello`; qits-workspaces sends it back in every workspace's spec. A size docker would refuse exits 2. | unset: qits-workspaces' default |
+| `QITS_WORKSPACES_RUNNER_WORKSPACE_MEMORY_SWAP_LIMIT` | Memory **plus** swap for one workspace container, docker's `--memory-swap` syntax: a total, so `12g` beside an `8g` limit is 4 GiB of swap, and `-1` is unlimited. Below the memory limit exits 2. Advertised like the memory limit. | unset: qits-workspaces' default |
 | `QITS_WORKSPACES_RUNNER_STATE_DIR` | Where `client.json` lives — the state volume's mount point. | `/var/lib/qits-workspaces-runner` |
 | `QITS_WORKSPACES_RUNNER_DOCKER_BINARY` | The docker CLI. | `docker` (the image's) |
 | `QITS_WORKSPACES_RUNNER_DOCKER_TIMEOUT` | Seconds any one docker call may take. | `120` |
@@ -253,7 +255,8 @@ or stale, 2 when the state directory does not exist.
 The lifecycle frames are qits-runner-protocol's, byte-identical to CI's; the workspace frames are
 this repository's. A row id is a JSON number.
 
-    runner → hello{runnerVersion, capabilityVersion, slots, capabilities, heldWorkspaces}
+    runner → hello{runnerVersion, capabilityVersion, slots, capabilities, heldWorkspaces,
+                   workspaceMemoryLimit?, workspaceMemorySwapLimit?}
     ack{slots, adoptedWorkspaces} ← … estate{owned:[rowId], workspaceImage}
     runner → inventory{containers:[{rowId, running, specHash}], volumes:[rowId], dotClaudeVolume}
     backlog{queued} … runner → reserve … take{rowId, spec} | nothing

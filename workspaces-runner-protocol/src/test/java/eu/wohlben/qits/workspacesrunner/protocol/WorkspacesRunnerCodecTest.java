@@ -158,6 +158,44 @@ class WorkspacesRunnerCodecTest {
     assertEquals(List.of("2201"), ((Ack) CODEC.decode(ack)).adopted());
   }
 
+  @Test
+  void theNodesWorkspaceMemoryTravelsAsHelloExtensionsAndIsAbsentWhenUnset() {
+    RunnerCapabilities capabilities = new RunnerCapabilities(true, "amd64", "linux", Map.of());
+    Map<String, Object> memory = new LinkedHashMap<>();
+    memory.put(WorkspacesRunnerProtocol.Field.WORKSPACE_MEMORY_LIMIT, "8g");
+    memory.put(WorkspacesRunnerProtocol.Field.WORKSPACE_MEMORY_SWAP_LIMIT, "12g");
+    Hello hello =
+        new Hello(
+            WorkspacesRunnerBinary.VERSION,
+            WorkspacesRunnerProtocol.CAPABILITY_VERSION,
+            2,
+            capabilities,
+            List.of(),
+            memory);
+
+    String prefix =
+        "{\"type\":\"hello\",\"runnerVersion\":\""
+            + WorkspacesRunnerBinary.VERSION
+            + "\",\"capabilityVersion\":1,\"slots\":2,"
+            + "\"capabilities\":{\"docker\":true,\"arch\":\"amd64\",\"os\":\"linux\","
+            + "\"labels\":{}}";
+    assertEquals(
+        prefix + ",\"workspaceMemoryLimit\":\"8g\",\"workspaceMemorySwapLimit\":\"12g\"}",
+        Json.write(CODEC.encode(hello)));
+    assertEquals(memory, ((Hello) CODEC.decode(CODEC.encode(hello))).extensions());
+
+    Hello unset =
+        new Hello(
+            WorkspacesRunnerBinary.VERSION,
+            WorkspacesRunnerProtocol.CAPABILITY_VERSION,
+            2,
+            capabilities,
+            List.of(),
+            Map.of());
+    assertEquals(prefix + "}", Json.write(CODEC.encode(unset)), "the Hello it always was");
+    assertEquals(Map.of(), ((Hello) CODEC.decode(CODEC.encode(unset))).extensions());
+  }
+
   // --- the golden spelling ---------------------------------------------------------------------
 
   @Test

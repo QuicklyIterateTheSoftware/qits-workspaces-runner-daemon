@@ -172,11 +172,35 @@ class WorkspacesRunnerTest {
     assertEquals(new RunnerCapabilities(true, "amd64", "linux", Map.of()), hello.capabilities());
     assertEquals(List.of(), hello.held());
     assertFalse(CODEC.encode(hello).containsKey("heldWorkspaces"), "absent on a first connection");
+    assertEquals(Map.of(), hello.extensions(), "no workspace memory configured, none announced");
+    assertFalse(CODEC.encode(hello).containsKey("workspaceMemoryLimit"));
+    assertFalse(CODEC.encode(hello).containsKey("workspaceMemorySwapLimit"));
 
     String form = host.tokenBodies.getFirst();
     assertTrue(form.startsWith("grant_type=client_credentials"), form);
     assertTrue(form.contains("client_secret=client-secret"), form);
     assertTrue(host.tokenAuthorizations.stream().allMatch(a -> a == null), "never Basic");
+    awaitTrue(() -> Files.exists(state.resolve("heartbeat")));
+  }
+
+  @Test
+  void theHelloAnnouncesTheNodesWorkspaceMemoryWhenTheOperatorSetIt() throws Exception {
+    extraEnv.put("QITS_WORKSPACES_RUNNER_WORKSPACE_MEMORY_LIMIT", "8g");
+    extraEnv.put("QITS_WORKSPACES_RUNNER_WORKSPACE_MEMORY_SWAP_LIMIT", "12g");
+    ackWith(2, 0);
+    start("t");
+
+    Hello hello = host.await(Hello.class);
+    Map<String, Object> memory = new LinkedHashMap<>();
+    memory.put("workspaceMemoryLimit", "8g");
+    memory.put("workspaceMemorySwapLimit", "12g");
+    assertEquals(memory, hello.extensions());
+    assertEquals(1, hello.capabilityVersion(), "an optional field is no capability bump");
+
+    host.send(new HealthCheck("req-memory"));
+    Map<String, Object> session = check(host.await(HealthChecked.class), "session").data();
+    assertEquals("8g", session.get("workspaceMemoryLimit"), session.toString());
+    assertEquals("12g", session.get("workspaceMemorySwapLimit"), session.toString());
     awaitTrue(() -> Files.exists(state.resolve("heartbeat")));
   }
 
@@ -1247,8 +1271,11 @@ class WorkspacesRunnerTest {
 
   private long housekeepingMillis = TimeUnit.HOURS.toMillis(6);
 
+  /** The runner's own variables a case adds to {@link #env}. */
+  private final Map<String, String> extraEnv = new HashMap<>();
+
   private Map<String, String> env(String token) {
-    Map<String, String> env = new HashMap<>();
+    Map<String, String> env = new HashMap<>(extraEnv);
     env.put(IDENTITY.env(RunnerSettings.URL), host.base());
     env.put(IDENTITY.env(RunnerSettings.ID), RUNNER_ID);
     env.put(IDENTITY.env(RunnerSettings.REGISTRATION_TOKEN), token);
@@ -1266,7 +1293,9 @@ class WorkspacesRunnerTest {
     if (domain != null) {
       domain.close();
     }
-    domain = new WorkspacesRunnerDomain(settings, timing, Clock.fixed(NOW, ZoneOffset.UTC));
+    WorkspaceLimits limits = WorkspaceLimits.parse(IDENTITY, env(token)::get);
+    domain =
+        new WorkspacesRunnerDomain(settings, limits, timing, Clock.fixed(NOW, ZoneOffset.UTC));
     runner =
         new RunnerRuntime<>(
             vertx,

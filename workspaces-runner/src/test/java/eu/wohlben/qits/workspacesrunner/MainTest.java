@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import eu.wohlben.qits.runner.toolkit.RunnerExit;
 import eu.wohlben.qits.runner.toolkit.RunnerLauncher;
 import eu.wohlben.qits.workspacesrunner.protocol.WorkspacesRunnerBinary;
 import java.io.ByteArrayOutputStream;
@@ -66,5 +67,20 @@ class MainTest {
             Map.of("QITS_WORKSPACES_RUNNER_STATE_DIR", state.toString())::get,
             new PrintStream(new ByteArrayOutputStream(), true, StandardCharsets.UTF_8));
     assertEquals(1, health, "no heartbeat yet");
+  }
+
+  @Test
+  void aWorkspaceLimitDockerWouldRefuseExitsTwoBeforeAnythingIsDialled() {
+    int code =
+        Main.run(
+            null,
+            new String[0],
+            Map.of(
+                    "QITS_WORKSPACES_RUNNER_URL", "https://workspaces.qits.example.eu",
+                    "QITS_WORKSPACES_RUNNER_ID", "r1",
+                    "QITS_WORKSPACES_RUNNER_WORKSPACE_MEMORY_LIMIT", "banana")
+                ::get,
+            new PrintStream(new ByteArrayOutputStream(), true, StandardCharsets.UTF_8));
+    assertEquals(RunnerExit.MISCONFIGURED, code);
   }
 }

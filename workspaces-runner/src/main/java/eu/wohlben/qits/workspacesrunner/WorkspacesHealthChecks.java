@@ -34,6 +34,11 @@ import java.util.function.Supplier;
  *   <li>{@code session} — {@code data: {connected, connectedSince, slots, held}}, the slots of the
  *       last {@code Ack} and the rows the toolkit's slot ledger holds, then the workspace memory
  *       the {@code Hello} announced, under the same keys and only when set. Read-only.
+ *   <li>{@code workspaceMemory} — {@link WorkspaceMemoryCheck}: each running workspace's cgroup
+ *       memory cap, current use and {@code oom}/{@code oom_kill} counters, plus the node's {@code
+ *       MemTotal}/{@code SwapTotal} and whether the running workspaces' own caps together outgrow
+ *       it. Writes nothing; <b>always ok</b>, exactly like {@code login} — a workspace OOM-killed
+ *       at its own cap is that workspace's affair, never a reason to quarantine the node.
  * </ol>
  */
 final class WorkspacesHealthChecks {
@@ -52,7 +57,8 @@ final class WorkspacesHealthChecks {
       NodeInventoryCheck inventory,
       Supplier<String> workspaceImage,
       Supplier<LoginState> lastLogin,
-      Supplier<SessionFacts> session) {
+      Supplier<SessionFacts> session,
+      RunnerHealthCheck workspaceMemory) {
     Duration call = docker.deadline();
     checks
         .register(named("docker", null, s -> docker(docker)))
@@ -64,7 +70,8 @@ final class WorkspacesHealthChecks {
                 s -> selfTest(selfTest, s, workspaceImage.get())))
         .register(inventory)
         .register(named("login", null, s -> login(lastLogin.get())))
-        .register(named("session", null, s -> session(session.get(), s)));
+        .register(named("session", null, s -> session(session.get(), s)))
+        .register(workspaceMemory);
   }
 
   /** The {@code healthChecked} for a run of {@code checks}: ok only when all of them are. */

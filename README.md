@@ -79,9 +79,15 @@ the rest are still reported: `docker` (the daemon answers, its version), `worksp
 estate's image is here — pulled if not — with its id and creation time), `selfTest` (the run above),
 `nodeInventory` (every container and volume under the runner's own labels, with ids, states, start,
 finish and creation times and exit codes, and the runner's own container), `login` (the last probe's
-answer; never a new probe, and never a failure — a login is the operator's) and `session` (connected
-since, the Ack's slots, the rows held). Only `workspaceImage` and `selfTest` write to docker; the
-others only read, so the answer is how a person sees the node without its shell.
+answer; never a new probe, and never a failure — a login is the operator's), `session` (connected
+since, the Ack's slots, the rows held, and the announced workspace memory limits) and
+`workspaceMemory` (each running workspace's cgroup memory cap, current use and `oom`/`oom_kill`
+counters, read with one `docker exec` per container, plus the node's `MemTotal`/`SwapTotal` and
+whether the running workspaces' own caps together outgrow it). `workspaceMemory` is never a failure
+either, for the same reason `login` is not: a workspace OOM-killed at its own cap is the
+workspace's affair, not a broken node, and the point of the check is to put it in front of a person
+who would otherwise never see it. Only `workspaceImage` and `selfTest` write to docker; the others
+only read, so the answer is how a person sees the node without its shell.
 
 ### Logging in the agent CLIs (once per node)
 

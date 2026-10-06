@@ -225,7 +225,8 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
         new NodeInventoryCheck(identity, settings.runnerId(), docker),
         this::workspaceImage,
         () -> lastLogin,
-        () -> new WorkspacesHealthChecks.SessionFacts(live, connectedSince, ackSlots, limits));
+        () -> new WorkspacesHealthChecks.SessionFacts(live, connectedSince, ackSlots, limits),
+        new WorkspaceMemoryCheck(docker, containers, names, () -> ackSlots, clock));
     this.limits = limits;
     this.timing = timing;
     this.clock = clock;

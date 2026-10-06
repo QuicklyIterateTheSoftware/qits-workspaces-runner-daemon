@@ -1,7 +1,6 @@
 package eu.wohlben.qits.workspacesrunner.protocol;
 
 import eu.wohlben.qits.runner.protocol.RunnerVocabulary;
-import java.util.List;
 import java.util.Set;
 
 /**
@@ -15,8 +14,7 @@ import java.util.Set;
  * class holds the workspace frames, which travel through {@link WorkspacesRunnerCodec}:
  *
  * <pre>
- *   Hello{heldWorkspaces, workspaceMemoryLimit?, workspaceMemorySwapLimit?}
- *     → Ack{slots, adoptedWorkspaces} → Estate{owned, workspaceImage}
+ *   Hello{heldWorkspaces} → Ack{slots, adoptedWorkspaces} → Estate{owned, workspaceImage}
  *                         ← Inventory{containers, volumes, dotClaudeVolume}
  *   Reserve → Take{rowId, spec} | Nothing   → Launched{rowId, containerId} | LaunchFailed{rowId, detail}
  *   Stop{rowId} → Stopped{rowId}            Delete{rowId} → Deleted{rowId}
@@ -90,32 +88,6 @@ public final class WorkspacesRunnerProtocol {
 
   private WorkspacesRunnerProtocol() {}
 
-  /**
-   * The workspaces runner's own variables, without {@link #ENV_PREFIX} — the way qits-runner-
-   * toolkit's {@code RunnerSettings} spells the base's. Here rather than in the runner because
-   * qits-workspaces-service names them too: {@link #TUNING} is what its install page hands the
-   * toolkit's {@code InstallScript}, so an operator's value on the install line reaches the runner.
-   */
-  public static final class Env {
-    /**
-     * The memory a workspace container may use on this node, in docker's {@code --memory} syntax
-     * ({@code 8g}). Unset: the runner announces none and qits-workspaces' own default applies.
-     */
-    public static final String WORKSPACE_MEMORY_LIMIT = "WORKSPACE_MEMORY_LIMIT";
-
-    /**
-     * Memory plus swap for a workspace container, in docker's {@code --memory-swap} syntax: a
-     * total that includes {@link #WORKSPACE_MEMORY_LIMIT}, or {@code -1} for unlimited swap.
-     */
-    public static final String WORKSPACE_MEMORY_SWAP_LIMIT = "WORKSPACE_MEMORY_SWAP_LIMIT";
-
-    /** The variables an install line may carry beyond the base's tuning, in this order. */
-    public static final List<String> TUNING =
-        List.of(WORKSPACE_MEMORY_LIMIT, WORKSPACE_MEMORY_SWAP_LIMIT);
-
-    private Env() {}
-  }
-
   /** The {@code "type"} discriminator values of the workspace frames. */
   public static final class Type {
     // qits-workspaces -> runner
@@ -174,12 +146,6 @@ public final class WorkspacesRunnerProtocol {
     public static final String CLAUDE = "claude";
     public static final String KIMI = "kimi";
     public static final String CHECKED_AT = "checkedAt";
-    // Hello extensions: the node's workspace memory, written only when the operator set it. What a
-    // node can safely give a workspace depends on the host, like its slots, so the runner says it
-    // and qits-workspaces stamps it into the WorkspaceSpec it sends back (memoryLimit and
-    // memorySwapLimit below). Optional, so not a CAPABILITY_VERSION bump.
-    public static final String WORKSPACE_MEMORY_LIMIT = "workspaceMemoryLimit";
-    public static final String WORKSPACE_MEMORY_SWAP_LIMIT = "workspaceMemorySwapLimit";
     public static final String OK = "ok";
     // HealthCheck, HealthChecked and its named checks
     public static final String REQUEST_ID = "requestId";

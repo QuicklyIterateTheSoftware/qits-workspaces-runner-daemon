@@ -1,7 +1,6 @@
 package eu.wohlben.qits.workspacesrunner;
 
 import eu.wohlben.qits.runner.toolkit.Heartbeat;
-import eu.wohlben.qits.runner.toolkit.RunnerExit;
 import eu.wohlben.qits.runner.toolkit.RunnerLauncher;
 import eu.wohlben.qits.runner.toolkit.RunnerSettings;
 import io.quarkus.runtime.Quarkus;
@@ -9,9 +8,7 @@ import io.quarkus.runtime.QuarkusApplication;
 import io.quarkus.runtime.annotations.QuarkusMain;
 import io.vertx.core.Vertx;
 import jakarta.inject.Inject;
-import java.io.PrintStream;
 import java.util.function.Function;
-import org.jboss.logging.Logger;
 
 /**
  * Entry point, and <b>the one CDI shell</b>: it hands {@link WorkspacesRunnerIdentity#IDENTITY},
@@ -25,16 +22,9 @@ import org.jboss.logging.Logger;
  * and nothing else — no startup line beside it) and {@code QITS_WORKSPACES_RUNNER_DECOMMISSION}
  * (the decommission helper). {@link RunnerLauncher} answers each of them without touching Vert.x,
  * so they are handed none; {@code MainTest} holds that true for the pinned toolkit.
- *
- * <p><b>The runner's own variables are parsed here</b>, beside the toolkit's: {@link
- * WorkspaceLimits}, which the domain announces in its {@code Hello}. The launcher's factory is
- * handed only {@code RunnerSettings} and cannot refuse, so a bad value is caught before it and
- * exits 2 with the same one line the toolkit writes for its own.
  */
 @QuarkusMain
 public class Main {
-
-  private static final Logger LOG = Logger.getLogger(Main.class);
 
   public static void main(String... args) {
     if (answersBeforeQuarkus(args, System::getenv)) {
@@ -61,24 +51,6 @@ public class Main {
     return decommission != null && !decommission.isBlank();
   }
 
-  /**
-   * The runner: its own variables, then {@link RunnerLauncher} with a domain built from both. Only
-   * reached when {@link #answersBeforeQuarkus} said no, so a bad limit never stands in the way of
-   * the healthcheck or the version probe.
-   */
-  static int run(Vertx vertx, String[] args, Function<String, String> env, PrintStream out) {
-    var identity = WorkspacesRunnerIdentity.IDENTITY;
-    WorkspaceLimits limits;
-    try {
-      limits = WorkspaceLimits.parse(identity, env);
-    } catch (RunnerSettings.Invalid invalid) {
-      LOG.errorf("%s cannot start: %s. Exiting.", identity.logName(), invalid.getMessage());
-      return RunnerExit.MISCONFIGURED;
-    }
-    return RunnerLauncher.main(
-        identity, settings -> new WorkspacesRunnerDomain(settings, limits), vertx, args, env, out);
-  }
-
   /** The runner itself, on the Vert.x Quarkus manages. */
   public static class RunnerApplication implements QuarkusApplication {
 
@@ -86,7 +58,8 @@ public class Main {
 
     @Override
     public int run(String... args) {
-      return Main.run(vertx, args, System::getenv, System.out);
+      return RunnerLauncher.main(
+          WorkspacesRunnerIdentity.IDENTITY, WorkspacesRunnerDomain::new, vertx, args);
     }
   }
 }

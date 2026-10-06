@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import eu.wohlben.qits.runner.toolkit.RunnerIdentity;
 import eu.wohlben.qits.runner.toolkit.install.InstallScript;
 import eu.wohlben.qits.workspacesrunner.protocol.WorkspacesRunnerBinary;
-import eu.wohlben.qits.workspacesrunner.protocol.WorkspacesRunnerProtocol;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
@@ -40,10 +39,8 @@ class WorkspacesInstallScriptTest {
   private static final String ID8 = "3f2a9c1e";
   private static final String VERSION = WorkspacesRunnerBinary.VERSION;
   private static final String IMAGE = REGISTRY + "/qits/qits-workspaces-runner:" + VERSION;
-  /** As qits-workspaces-service builds it: the runner's own tuning is the protocol jar's list. */
   private static final InstallScript.InstallPage PAGE =
-      new InstallScript.InstallPage(
-          "the Workspaces UI's Runners page", WorkspacesRunnerProtocol.Env.TUNING);
+      new InstallScript.InstallPage("the Workspaces UI's Runners page", List.of());
 
   /**
    * A docker that records every argv, one line each, and answers {@code ps} with a container per
@@ -119,9 +116,7 @@ class WorkspacesInstallScriptTest {
                 "QITS_WORKSPACES_RUNNER_URL", "https://workspaces.qits.example.eu",
                 "QITS_WORKSPACES_RUNNER_ID", ID,
                 "QITS_WORKSPACES_RUNNER_REGISTRATION_TOKEN", "qits_tok_FIXTURE",
-                "QITS_WORKSPACES_RUNNER_SLOTS", "2",
-                "QITS_WORKSPACES_RUNNER_WORKSPACE_MEMORY_LIMIT", "8g",
-                "QITS_WORKSPACES_RUNNER_WORKSPACE_MEMORY_SWAP_LIMIT", "12g"),
+                "QITS_WORKSPACES_RUNNER_SLOTS", "2"),
             script);
     List<String> calls = Files.readAllLines(work.resolve("calls.log"));
     assertEquals(0, exit, String.join("\n", calls));
@@ -152,15 +147,6 @@ class WorkspacesInstallScriptTest {
                         && c.contains("--label qits.workspaces.runner.process=" + ID)
                         && c.endsWith(IMAGE)),
         "the runner starts under its own name, label and image: " + calls);
-    assertTrue(
-        calls.stream()
-            .anyMatch(
-                c ->
-                    c.startsWith("docker run -d")
-                        && c.contains(" -e QITS_WORKSPACES_RUNNER_WORKSPACE_MEMORY_LIMIT=8g ")
-                        && c.contains(
-                            " -e QITS_WORKSPACES_RUNNER_WORKSPACE_MEMORY_SWAP_LIMIT=12g ")),
-        "the install line's workspace memory reaches the runner: " + calls);
   }
 
   private static int sh(List<String> command, Map<String, String> env, Path stdin)

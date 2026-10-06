@@ -32,15 +32,18 @@ import java.util.function.Supplier;
  *       kimi, checkedAt}}. Read-only, and always ok: presence is reported by {@code loginState} and
  *       is the operator's to change, so an absent login must never hold a runner in quarantine.
  *   <li>{@code session} — {@code data: {connected, connectedSince, slots, held}}, the slots of the
- *       last {@code Ack} and the rows the toolkit's slot ledger holds, then the workspace memory
- *       the {@code Hello} announced, under the same keys and only when set. Read-only.
+ *       last {@code Ack} and the rows the toolkit's slot ledger holds. Read-only.
+ *   <li>{@code workspaceMemory} — {@link WorkspaceMemoryCheck}: each running workspace's cgroup
+ *       memory cap, current use and {@code oom}/{@code oom_kill} counters, plus the node's {@code
+ *       MemTotal}/{@code SwapTotal} and whether the running workspaces' own caps together outgrow
+ *       it. Writes nothing; <b>always ok</b>, exactly like {@code login} — a workspace OOM-killed
+ *       at its own cap is that workspace's affair, never a reason to quarantine the node.
  * </ol>
  */
 final class WorkspacesHealthChecks {
 
   /** What the domain knows of its session, as the {@code session} check reads it. */
-  record SessionFacts(
-      boolean connected, Instant connectedSince, Integer slots, WorkspaceLimits limits) {}
+  record SessionFacts(boolean connected, Instant connectedSince, Integer slots) {}
 
   private WorkspacesHealthChecks() {}
 
@@ -52,7 +55,8 @@ final class WorkspacesHealthChecks {
       NodeInventoryCheck inventory,
       Supplier<String> workspaceImage,
       Supplier<LoginState> lastLogin,
-      Supplier<SessionFacts> session) {
+      Supplier<SessionFacts> session,
+      RunnerHealthCheck workspaceMemory) {
     Duration call = docker.deadline();
     checks
         .register(named("docker", null, s -> docker(docker)))
@@ -64,7 +68,8 @@ final class WorkspacesHealthChecks {
                 s -> selfTest(selfTest, s, workspaceImage.get())))
         .register(inventory)
         .register(named("login", null, s -> login(lastLogin.get())))
-        .register(named("session", null, s -> session(session.get(), s)));
+        .register(named("session", null, s -> session(session.get(), s)))
+        .register(workspaceMemory);
   }
 
   /** The {@code healthChecked} for a run of {@code checks}: ok only when all of them are. */
@@ -172,7 +177,6 @@ final class WorkspacesHealthChecks {
     data.put("connectedSince", facts.connectedSince() == null ? null : facts.connectedSince().toString());
     data.put("slots", facts.slots());
     data.put("held", new ArrayList<>(session.held()));
-    data.putAll(facts.limits().announced());
     String detail =
         facts.connected()
             ? "connected since " + facts.connectedSince() + ", " + session.held().size() + " of "

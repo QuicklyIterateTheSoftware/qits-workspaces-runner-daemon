@@ -172,35 +172,11 @@ class WorkspacesRunnerTest {
     assertEquals(new RunnerCapabilities(true, "amd64", "linux", Map.of()), hello.capabilities());
     assertEquals(List.of(), hello.held());
     assertFalse(CODEC.encode(hello).containsKey("heldWorkspaces"), "absent on a first connection");
-    assertEquals(Map.of(), hello.extensions(), "no workspace memory configured, none announced");
-    assertFalse(CODEC.encode(hello).containsKey("workspaceMemoryLimit"));
-    assertFalse(CODEC.encode(hello).containsKey("workspaceMemorySwapLimit"));
 
     String form = host.tokenBodies.getFirst();
     assertTrue(form.startsWith("grant_type=client_credentials"), form);
     assertTrue(form.contains("client_secret=client-secret"), form);
     assertTrue(host.tokenAuthorizations.stream().allMatch(a -> a == null), "never Basic");
-    awaitTrue(() -> Files.exists(state.resolve("heartbeat")));
-  }
-
-  @Test
-  void theHelloAnnouncesTheNodesWorkspaceMemoryWhenTheOperatorSetIt() throws Exception {
-    extraEnv.put("QITS_WORKSPACES_RUNNER_WORKSPACE_MEMORY_LIMIT", "8g");
-    extraEnv.put("QITS_WORKSPACES_RUNNER_WORKSPACE_MEMORY_SWAP_LIMIT", "12g");
-    ackWith(2, 0);
-    start("t");
-
-    Hello hello = host.await(Hello.class);
-    Map<String, Object> memory = new LinkedHashMap<>();
-    memory.put("workspaceMemoryLimit", "8g");
-    memory.put("workspaceMemorySwapLimit", "12g");
-    assertEquals(memory, hello.extensions());
-    assertEquals(1, hello.capabilityVersion(), "an optional field is no capability bump");
-
-    host.send(new HealthCheck("req-memory"));
-    Map<String, Object> session = check(host.await(HealthChecked.class), "session").data();
-    assertEquals("8g", session.get("workspaceMemoryLimit"), session.toString());
-    assertEquals("12g", session.get("workspaceMemorySwapLimit"), session.toString());
     awaitTrue(() -> Files.exists(state.resolve("heartbeat")));
   }
 
@@ -835,7 +811,14 @@ class WorkspacesRunnerTest {
 
     assertEquals("req-7", checked.requestId());
     assertEquals(
-        List.of("docker", "workspaceImage", "selfTest", "nodeInventory", "login", "session"),
+        List.of(
+            "docker",
+            "workspaceImage",
+            "selfTest",
+            "nodeInventory",
+            "login",
+            "session",
+            "workspaceMemory"),
         checked.checks().stream().map(CheckResult::name).toList());
     assertTrue(checked.ok(), checked.detail());
     assertTrue(checked.checks().stream().allMatch(CheckResult::ok), checked.checks()::toString);
@@ -886,6 +869,12 @@ class WorkspacesRunnerTest {
     session.put("held", List.of());
     assertJsonEquals(session, check(checked, "session").data());
 
+    // ws(1) is exited, not running, so workspaceMemory execs into nothing here; its node-level
+    // facts come off this very machine's /proc/meminfo and are not asserted byte for byte.
+    assertTrue(check(checked, "workspaceMemory").ok());
+    assertEquals(List.of(), check(checked, "workspaceMemory").data().get("workspaces"));
+    assertEquals("0 workspace(s), no oom kills", check(checked, "workspaceMemory").detail());
+
     // Only the self-test writes, and only its own container; nothing else of the node moves.
     List<List<String>> all = docker.calls();
     for (List<String> call : all.subList(callsBefore, all.size())) {
@@ -916,13 +905,27 @@ class WorkspacesRunnerTest {
   void theReadOnlyChecksWriteNothingToDocker() throws Exception {
     docker.container(
         ws(5), Map.of("qits.workspaces.runner", RUNNER_ID, "qits.workspaces.runner.workspace", "5"));
+    // One scripted answer serves both NodeInventoryCheck's own template (9 fields: Id|Name|Status|
+    // StartedAt|FinishedAt|ExitCode|Image|workLabel|versionLabel) and WorkspaceContainers' narrower
+    // one (Id|Status|ExitCode|workLabel|specLabel) — FakeDocker keys an answer on the verb and the
+    // last argument alone, blind to which --format asked for it, so the fields that matter to
+    // either reader (status "running", exit code, row id 5) have to line up at both sets of
+    // indices at once; this test asserts only nodeInventory's {@code id}, so the rest is filler.
     docker.answerFor(
         "inspect",
         ws(5),
         0,
-        "c5full|/" + ws(5) + "|running|2026-10-05T04:00:00Z|" + NodeInventoryCheck.ZERO_TIME + "|0|"
-            + WORKSPACE_IMAGE
-            + "|5|<no value>\n",
+        "c5full|running|0|5|<no value>|0|" + WORKSPACE_IMAGE + "|5|<no value>\n",
+        "");
+    docker.answerFor(
+        "exec",
+        ws(5),
+        0,
+        "4294967296\n"
+            + WorkspaceMemoryCheck.DELIMITER
+            + "123456\n"
+            + WorkspaceMemoryCheck.DELIMITER
+            + "low 0\nhigh 0\nmax 0\noom 1\noom_kill 3\noom_group_kill 0\n",
         "");
     ackWith(1, 0);
     start("t");
@@ -933,10 +936,10 @@ class WorkspacesRunnerTest {
     Map<String, Map<String, String>> volumesBefore = docker.volumes();
     int callsBefore = docker.calls().size();
 
-    for (String name : List.of("docker", "nodeInventory", "login", "session")) {
+    for (String name : List.of("docker", "nodeInventory", "login", "session", "workspaceMemory")) {
       assertTrue(domain.healthChecks().names().contains(name), name);
     }
-    // No estate, so workspaceImage and selfTest fail at once without touching docker; the four
+    // No estate, so workspaceImage and selfTest fail at once without touching docker; the
     // read-only checks run in full.
     host.send(new HealthCheck("req-ro"));
     HealthChecked checked = host.await(HealthChecked.class);
@@ -947,6 +950,26 @@ class WorkspacesRunnerTest {
         ((Map<?, ?>) ((List<?>) check(checked, "nodeInventory").data().get("containers")).getFirst())
             .get("id"));
 
+    // ws(5) is running: workspaceMemory execs into it, reads its oom kills, and is still ok —
+    // an OOM-killed workspace is that workspace's affair, never a reason to fail the check. The
+    // node's own memTotal/swapTotal/overcommitted are this machine's real /proc/meminfo, so only
+    // the workspace entry (not the whole data map) is asserted exactly, through the wire's own
+    // JSON (which round-trips a row id as a JSON number, not necessarily a Java Long).
+    assertTrue(check(checked, "workspaceMemory").ok());
+    Map<String, Object> ws5 = new LinkedHashMap<>();
+    ws5.put("rowId", 5L);
+    ws5.put("container", ws(5));
+    ws5.put("memoryMax", 4294967296L);
+    ws5.put("memoryCurrent", 123456L);
+    ws5.put("oomKill", 3L);
+    ws5.put("oom", 1L);
+    assertJsonEquals(
+        Map.of("workspaces", List.of(ws5)),
+        Map.of("workspaces", check(checked, "workspaceMemory").data().get("workspaces")));
+    assertTrue(
+        check(checked, "workspaceMemory").detail().contains("ws 5: 3 oom kill(s) at 4.0 GiB cap"),
+        check(checked, "workspaceMemory")::detail);
+
     List<List<String>> all = docker.calls();
     for (List<String> call : all.subList(callsBefore, all.size())) {
       List<String> c = FakeDocker.withoutConfig(call);
@@ -954,6 +977,12 @@ class WorkspacesRunnerTest {
           c.size() > 1 && Set.of("volume", "container", "image").contains(c.getFirst())
               ? c.subList(0, 2)
               : c.subList(0, 1);
+      // workspaceMemory's own read of a running workspace's cgroup files — a cat, never a write,
+      // despite "exec" being treated as one below for every other check.
+      if (verb.equals(List.of("exec"))) {
+        assertEquals(List.of("exec", ws(5), "sh", "-c"), c.subList(0, 4), c::toString);
+        continue;
+      }
       // The toolkit's own housekeeping may prune images beside the check; a check never writes.
       if (!verb.equals(List.of("image", "prune"))) {
         assertFalse(WRITES.contains(verb), () -> "a read-only check wrote: " + c);
@@ -1022,11 +1051,14 @@ class WorkspacesRunnerTest {
             "nodeInventory",
             "login",
             "session",
+            "workspaceMemory",
             "throws",
             "hangs"),
         checked.checks().stream().map(CheckResult::name).toList());
     for (String passing :
-        List.of("docker", "workspaceImage", "selfTest", "nodeInventory", "login", "session")) {
+        List.of(
+            "docker", "workspaceImage", "selfTest", "nodeInventory", "login", "session",
+            "workspaceMemory")) {
       assertTrue(check(checked, passing).ok(), () -> passing + ": " + check(checked, passing));
     }
     assertFalse(check(checked, "throws").ok());
@@ -1271,11 +1303,8 @@ class WorkspacesRunnerTest {
 
   private long housekeepingMillis = TimeUnit.HOURS.toMillis(6);
 
-  /** The runner's own variables a case adds to {@link #env}. */
-  private final Map<String, String> extraEnv = new HashMap<>();
-
   private Map<String, String> env(String token) {
-    Map<String, String> env = new HashMap<>(extraEnv);
+    Map<String, String> env = new HashMap<>();
     env.put(IDENTITY.env(RunnerSettings.URL), host.base());
     env.put(IDENTITY.env(RunnerSettings.ID), RUNNER_ID);
     env.put(IDENTITY.env(RunnerSettings.REGISTRATION_TOKEN), token);
@@ -1293,9 +1322,7 @@ class WorkspacesRunnerTest {
     if (domain != null) {
       domain.close();
     }
-    WorkspaceLimits limits = WorkspaceLimits.parse(IDENTITY, env(token)::get);
-    domain =
-        new WorkspacesRunnerDomain(settings, limits, timing, Clock.fixed(NOW, ZoneOffset.UTC));
+    domain = new WorkspacesRunnerDomain(settings, timing, Clock.fixed(NOW, ZoneOffset.UTC));
     runner =
         new RunnerRuntime<>(
             vertx,

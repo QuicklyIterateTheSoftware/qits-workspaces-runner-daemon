@@ -127,7 +127,6 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
   private final NodeHealthCheck healthCheck;
   private final LoginProbe loginProbe;
   private final HealthChecks healthChecks;
-  private final WorkspaceLimits limits;
   private final Timing timing;
   private final Clock clock;
 
@@ -189,17 +188,11 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
 
   /** Built by {@code RunnerLauncher} from the parsed settings, as every embedder's domain is. */
   public WorkspacesRunnerDomain(RunnerSettings settings) {
-    this(settings, WorkspaceLimits.NONE);
-  }
-
-  /** The same, with the node's workspace limits {@code Main} parsed beside the settings. */
-  WorkspacesRunnerDomain(RunnerSettings settings, WorkspaceLimits limits) {
-    this(settings, limits, Timing.defaults(), Clock.systemUTC());
+    this(settings, Timing.defaults(), Clock.systemUTC());
   }
 
   /** The same domain with the node's clocks a suite shrinks. */
-  WorkspacesRunnerDomain(
-      RunnerSettings settings, WorkspaceLimits limits, Timing timing, Clock clock) {
+  WorkspacesRunnerDomain(RunnerSettings settings, Timing timing, Clock clock) {
     this.docker = RunnerDocker.of(identity, settings);
     this.runnerId = settings.runnerId();
     this.stateDir = settings.stateDir();
@@ -225,8 +218,8 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
         new NodeInventoryCheck(identity, settings.runnerId(), docker),
         this::workspaceImage,
         () -> lastLogin,
-        () -> new WorkspacesHealthChecks.SessionFacts(live, connectedSince, ackSlots, limits));
-    this.limits = limits;
+        () -> new WorkspacesHealthChecks.SessionFacts(live, connectedSince, ackSlots),
+        new WorkspaceMemoryCheck(docker, containers, names, () -> ackSlots, clock));
     this.timing = timing;
     this.clock = clock;
     ScheduledThreadPoolExecutor pool =
@@ -249,15 +242,6 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
   @Override
   public RunnerCapabilities capabilities(HostFacts host) {
     return new RunnerCapabilities(host.docker(), host.arch(), host.os(), Map.of());
-  }
-
-  /**
-   * The node's workspace memory, when the operator set it: qits-workspaces stores it on the
-   * runner's row and sends it back in every {@code take}'s spec. Nothing when unset.
-   */
-  @Override
-  public Map<String, Object> helloExtensions() {
-    return limits.announced();
   }
 
   /**

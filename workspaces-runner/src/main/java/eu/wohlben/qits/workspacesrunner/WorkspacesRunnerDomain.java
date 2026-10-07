@@ -72,8 +72,8 @@ import org.jboss.logging.Logger;
  * reserve} and parks on {@code nothing}; nothing here decides when to ask for work.
  *
  * <p><b>The server's {@code estate} is the desired state</b> (the dossier's node-reconcile table):
- * a labelled workspace container whose row is not in {@code owned} is removed at once ({@link
- * OwnResources#reconcile}), a labelled {@code -ws-} volume at the next housekeeping pass ({@link
+ * a labelled workspace container whose row is not in {@code owned} is stopped and removed at once
+ * ({@link OwnResources#reconcile}), a labelled {@code -ws-} volume at the next housekeeping pass ({@link
  * WorkspaceVolumesPass}) — both only after an {@code estate} arrived in this session, so a runner
  * that has not heard the server's list yet removes nothing. The node volumes ({@code dot-claude},
  * {@code m2}, {@code pnpm}) go only with the runner, at decommission. Nothing without the label is
@@ -374,7 +374,8 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
   // --- the frames ---------------------------------------------------------------------------------
 
   /**
-   * The server's list. Containers of rows it does not own go at once, then the {@code inventory}
+   * The server's list. Containers of rows it does not own go at once — stopped first ({@link
+   * #stopOutside}), then removed — and the {@code inventory}
    * says what is left; the workspace image is pulled when it is not here (so the probe, the health
    * check and the operator's login command all find it). Once the pull succeeds (or the image was
    * here already), and only when it names an image this process has not already ensured, {@link
@@ -397,7 +398,9 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
     keep.addAll(unconfirmed);
     Set<String> keepIds = new LinkedHashSet<>();
     keep.forEach(row -> keepIds.add(Long.toString(row)));
-    session.own().reconcile(keepIds);
+    if (stopOutside(keep, session)) {
+      session.own().reconcile(keepIds);
+    }
     unconfirmed.removeAll(owned);
     // What the reconcile removed no longer holds a slot; the look releases it and says so.
     look(session, true);
@@ -500,6 +503,11 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
   /**
    * The container and its {@code -ws-<rowId>} volume removed, then {@code deleted}: nothing of the
    * row is left on the node. Either already gone counts as gone.
+   *
+   * <p>The container is stopped before it is removed (qits-1064): {@code rm -f} is a SIGKILL, and
+   * a {@code claude --remote-control} inside archives its claude.ai session only on the SIGTERM a
+   * {@code docker stop} gives it — killed, the session lingers in the person's list for good. A stop
+   * that fails, or finds nothing, is no reason to keep the container: the removal follows anyway.
    */
   private void onDelete(Delete delete, RunnerSession session) {
     long rowId = delete.rowId();
@@ -510,6 +518,7 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
     lock.lock();
     try {
       ContainersDriver driver = session.driver();
+      stopGracefully(driver, name);
       ContainersDriver.OpResult gone = driver.remove(name, docker.deadline());
       if (!gone.ok() && !WorkspaceContainers.absent(gone.detail())) {
         LOG.warnf("workspaces-runner could not remove %s: %s", name, gone.detail());
@@ -529,6 +538,63 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
       inFlight.decrementAndGet();
     }
     sendInventory(session, true);
+  }
+
+  /**
+   * {@code docker stop}, its failure only logged: the step before a removal, never a gate on it. A
+   * container already gone or already stopped is the ordinary case and says nothing.
+   */
+  private void stopGracefully(ContainersDriver driver, String name) {
+    ContainersDriver.OpResult stopped = driver.stop(name, docker.deadline());
+    if (!stopped.ok() && !WorkspaceContainers.absent(stopped.detail())) {
+      LOG.warnf(
+          "workspaces-runner could not stop %s before removing it: %s", name, stopped.detail());
+    }
+  }
+
+  /**
+   * Stop, each under its row's lock, every running workspace container {@link
+   * OwnResources#reconcile} is about to remove — those whose row is not in {@code keep} — so the
+   * reconcile's {@code rm -f} finds them stopped rather than SIGKILLing them (qits-1064, see {@link
+   * #onDelete}). The set is the reconcile's own: own-labelled containers by their work label,
+   * against the same keep set; a container without a row is no workspace and has no session to
+   * archive. The lock makes this wait for a {@code delete} of the row under way, as a {@code stop}
+   * would; a row taken meanwhile is left alone. Stopped, the row is marked not running, so the exit
+   * watch does not read our own stop as an exit.
+   *
+   * @return false when docker did not answer the listing — the reconcile then waits for the next
+   *     {@code estate} rather than remove what nothing stopped
+   */
+  private boolean stopOutside(Set<Long> keep, RunnerSession session) {
+    List<WorkspaceContainers.Seen> seen;
+    try {
+      seen = containers.list();
+    } catch (RuntimeException e) {
+      LOG.warnf(
+          "workspaces-runner could not list its workspaces; reconciling nothing this time: %s",
+          e.getMessage());
+      return false;
+    }
+    for (WorkspaceContainers.Seen s : seen) {
+      long row = s.rowId();
+      if (!s.running() || keep.contains(row)) {
+        continue;
+      }
+      inFlight.incrementAndGet();
+      ReentrantLock lock = lockOf(row);
+      lock.lock();
+      try {
+        if (unconfirmed.contains(row)) {
+          continue;
+        }
+        stopGracefully(session.driver(), names.container(row));
+        lastRunning.put(row, false);
+      } finally {
+        lock.unlock();
+        inFlight.decrementAndGet();
+      }
+    }
+    return true;
   }
 
   /**

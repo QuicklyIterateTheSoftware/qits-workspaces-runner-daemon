@@ -361,8 +361,9 @@ class WorkspacesRunnerTest {
   }
 
   @Test
-  void deleteRemovesTheContainerAndItsVolumeOnlyAndAnAbsentRowIsDeletedToo() throws Exception {
-    seen(5, "exited", 0, "h5");
+  void deleteStopsThenRemovesTheContainerAndItsVolumeOnlyAndAnAbsentRowIsDeletedToo()
+      throws Exception {
+    seen(5, "running", 0, "h5");
     docker.volume(
         ws(5), Map.of("qits.workspaces.runner", RUNNER_ID, "qits.workspaces.runner.workspace", "5"));
     ackWith(1, 0);
@@ -373,6 +374,8 @@ class WorkspacesRunnerTest {
     assertEquals(new Deleted(5), host.await(Deleted.class));
     assertFalse(docker.containers().containsKey(ws(5)));
     assertFalse(docker.volumes().containsKey(ws(5)));
+    // A graceful stop first: rm -f is a SIGKILL, which leaves the claude.ai session unarchived.
+    assertStopBeforeRm(ws(5));
     assertTrue(
         docker.volumes().containsKey("qits-workspaces-runner-dot-claude-r1"),
         "the node's agent home is no row's");
@@ -458,6 +461,26 @@ class WorkspacesRunnerTest {
                     i ->
                         i.containers().equals(List.of(new HeldContainer(1, true, "h1")))
                             && "qits-workspaces-runner-dot-claude-r1".equals(i.dotClaudeVolume())));
+  }
+
+  @Test
+  void anEstateOmittingARunningWorkspaceStopsItBeforeRemovingItAndLeavesTheOwnedOneRunning()
+      throws Exception {
+    probesAnswer();
+    seen(1, "running", 0, "h1");
+    seen(3, "running", 0, "h3");
+    ackWith(2, 0);
+    start("t");
+    host.await(Inventory.class);
+    awaitTrue(() -> runner.session().held().equals(List.of("1", "3")));
+
+    host.send(new Estate(List.of(1L), WORKSPACE_IMAGE));
+    awaitTrue(() -> !docker.containers().containsKey(ws(3)));
+
+    assertStopBeforeRm(ws(3));
+    assertFalse(touched("stop", ws(1)) || touched("rm", ws(1)), docker.calls()::toString);
+    assertTrue(docker.containers().containsKey(ws(1)));
+    assertTrue(host.all(Exited.class).isEmpty(), () -> "no exit: " + host.all(Exited.class));
   }
 
   @Test
@@ -1443,6 +1466,14 @@ class WorkspacesRunnerTest {
     List<List<String>> runs = runsOf(name);
     assertFalse(runs.isEmpty(), () -> "no run of " + name + ": " + docker.calls());
     return runs.getFirst();
+  }
+
+  /** {@code docker stop <name>} was called, and before the first {@code docker rm -f <name>}. */
+  private void assertStopBeforeRm(String name) {
+    List<List<String>> calls = docker.calls().stream().map(FakeDocker::withoutConfig).toList();
+    int stop = calls.indexOf(List.of("stop", name));
+    int rm = calls.indexOf(List.of("rm", "-f", name));
+    assertTrue(stop >= 0 && rm > stop, () -> "stop, then rm -f, of " + name + ": " + calls);
   }
 
   private boolean touched(String verb, String name) {

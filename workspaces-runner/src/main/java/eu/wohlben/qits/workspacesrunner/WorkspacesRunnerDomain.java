@@ -45,6 +45,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ScheduledFuture;
 import java.util.concurrent.ScheduledThreadPoolExecutor;
@@ -94,6 +95,9 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
   private static final Logger LOG = Logger.getLogger(WorkspacesRunnerDomain.class);
 
   private static final WorkspacesRunnerCodec CODEC = new WorkspacesRunnerCodec();
+
+  /** How long {@link #close} lets work already running on the node's threads end on its own. */
+  static final Duration CLOSE_GRACE = Duration.ofSeconds(5);
 
   /**
    * The node's clocks: the health check's window and poll, how often exits are looked for, and
@@ -237,6 +241,8 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
               return t;
             });
     pool.setRemoveOnCancelPolicy(true);
+    // A close drops the next login probe and the watch's next look rather than waiting for them.
+    pool.setExecuteExistingDelayedTasksAfterShutdownPolicy(false);
     this.timer = pool;
   }
 
@@ -371,11 +377,33 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
     return e == null ? null : e.workspaceImage();
   }
 
-  /** Stop the node's timers; the process ending does the same. For a suite's teardown. */
+  /**
+   * Stop the node's timers, its health checks and its pulls; the process ending does the same. For
+   * a suite's teardown. What is already running gets {@link #CLOSE_GRACE} to end before it is
+   * interrupted: the process seam answers an interrupt by returning at once and leaves the docker
+   * it forked running, so an interrupted look could go on writing after close returned — into a
+   * suite's temp directory, as JUnit deletes it.
+   */
   void close() {
-    timer.shutdownNow();
+    drain(timer, CLOSE_GRACE);
     healthChecks.close();
     images.close();
+  }
+
+  /**
+   * Shut {@code pool} down, wait up to {@code grace} for what is running to end, and interrupt
+   * whatever has not by then.
+   */
+  static void drain(ExecutorService pool, Duration grace) {
+    pool.shutdown();
+    try {
+      if (!pool.awaitTermination(grace.toMillis(), TimeUnit.MILLISECONDS)) {
+        pool.shutdownNow();
+      }
+    } catch (InterruptedException interrupted) {
+      pool.shutdownNow();
+      Thread.currentThread().interrupt();
+    }
   }
 
   // --- the frames ---------------------------------------------------------------------------------

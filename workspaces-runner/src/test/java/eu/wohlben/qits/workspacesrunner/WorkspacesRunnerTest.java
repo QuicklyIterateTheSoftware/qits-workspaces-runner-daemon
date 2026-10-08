@@ -133,6 +133,24 @@ class WorkspacesRunnerTest {
     }
     host.close();
     vertx.close().toCompletionStage().toCompletableFuture().get(10, TimeUnit.SECONDS);
+    awaitNoFakeDocker();
+  }
+
+  /**
+   * Every docker this suite forked has ended, so none writes into the fake's directory — every
+   * unscripted call {@code mkdir}s its state there — while JUnit deletes it. A call answered
+   * "interrupted" leaves its process running (the process seam does not kill it), and a look the
+   * watch had under way when the runner stopped is exactly that. Ten seconds, then killed.
+   */
+  private static void awaitNoFakeDocker() throws InterruptedException {
+    long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+    while (ProcessHandle.current().descendants().anyMatch(ProcessHandle::isAlive)) {
+      if (System.nanoTime() > until) {
+        ProcessHandle.current().descendants().forEach(ProcessHandle::destroyForcibly);
+        return;
+      }
+      Thread.sleep(10);
+    }
   }
 
   // ---- register, bearer, Hello ------------------------------------------------------------------

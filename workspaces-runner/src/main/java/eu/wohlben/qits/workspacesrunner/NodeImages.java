@@ -105,9 +105,12 @@ final class NodeImages {
     }
   }
 
-  /** Stop the pull threads; a pull under way is interrupted. For the domain's own close. */
+  /**
+   * Stop the pull threads, giving a pull under way {@link WorkspacesRunnerDomain#CLOSE_GRACE} to
+   * end before it is interrupted. For the domain's own close.
+   */
   void close() {
-    pulls.shutdownNow();
+    WorkspacesRunnerDomain.drain(pulls, WorkspacesRunnerDomain.CLOSE_GRACE);
   }
 
   /** Whether {@code image} is on this node; a reference the belt refuses is not. */

@@ -123,6 +123,10 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
   private final WorkspaceNames names;
   private final NodeVolumes volumes;
   private final WorkspaceContainers containers;
+
+  /** The node's image pulls, shared by the launch, the health checks and the pre-pull. */
+  private final NodeImages images;
+
   private final WorkspaceLauncher launcher;
   private final NodeHealthCheck healthCheck;
   private final LoginProbe loginProbe;
@@ -199,9 +203,10 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
     this.names = new WorkspaceNames(identity, settings.runnerId());
     this.volumes = new NodeVolumes(identity, settings.runnerId());
     this.containers = new WorkspaceContainers(identity, settings.runnerId(), docker);
-    this.launcher = new WorkspaceLauncher(docker, names, volumes, containers);
+    this.images = new NodeImages(docker);
+    this.launcher = new WorkspaceLauncher(docker, names, volumes, containers, images);
     this.healthCheck =
-        new NodeHealthCheck(docker, names, timing.healthWindow(), timing.healthPoll());
+        new NodeHealthCheck(docker, names, timing.healthWindow(), timing.healthPoll(), images);
     this.loginProbe =
         new LoginProbe(
             identity,
@@ -213,6 +218,7 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
     WorkspacesHealthChecks.registerDefaults(
         healthChecks,
         docker,
+        images,
         healthCheck,
         timing.healthWindow(),
         new NodeInventoryCheck(identity, settings.runnerId(), docker),
@@ -406,7 +412,7 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
     look(session, true);
     String image = e.workspaceImage();
     if (image != null && !image.isBlank()) {
-      Optional<String> failure = NodeImages.ensure(docker, session, image);
+      Optional<String> failure = images.ensure(session, image);
       if (failure.isPresent()) {
         LOG.warnf(
             "workspaces-runner could not pre-pull the workspace image %s: %s",

@@ -40,12 +40,19 @@ final class NodeHealthCheck {
   private final WorkspaceNames names;
   private final Duration window;
   private final Duration poll;
+  private final NodeImages images;
 
-  NodeHealthCheck(RunnerDocker docker, WorkspaceNames names, Duration window, Duration poll) {
+  NodeHealthCheck(
+      RunnerDocker docker,
+      WorkspaceNames names,
+      Duration window,
+      Duration poll,
+      NodeImages images) {
     this.docker = docker;
     this.names = names;
     this.window = window;
     this.poll = poll;
+    this.images = images;
   }
 
   /** Run the check for {@code image} (null before the first {@code estate}) and answer it. */
@@ -53,7 +60,7 @@ final class NodeHealthCheck {
     if (image == null || image.isBlank()) {
       return failed("the runner has had no estate yet, so it does not know the workspace image");
     }
-    Optional<String> notHere = NodeImages.ensure(docker, session, image);
+    Optional<String> notHere = images.ensure(session, image);
     if (notHere.isPresent()) {
       return failed(notHere.get());
     }

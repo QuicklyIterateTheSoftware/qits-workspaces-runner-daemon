@@ -50,6 +50,7 @@ final class WorkspacesHealthChecks {
   static void registerDefaults(
       HealthChecks checks,
       RunnerDocker docker,
+      NodeImages images,
       NodeHealthCheck selfTest,
       Duration selfTestWindow,
       NodeInventoryCheck inventory,
@@ -60,7 +61,11 @@ final class WorkspacesHealthChecks {
     Duration call = docker.deadline();
     checks
         .register(named("docker", null, s -> docker(docker)))
-        .register(named("workspaceImage", call.multipliedBy(3), s -> image(docker, s, workspaceImage)))
+        .register(
+            named(
+                "workspaceImage",
+                call.multipliedBy(3),
+                s -> image(docker, images, s, workspaceImage)))
         .register(
             named(
                 "selfTest",
@@ -113,7 +118,10 @@ final class WorkspacesHealthChecks {
   }
 
   private static RunnerHealthCheck.Result image(
-      RunnerDocker docker, RunnerSession session, Supplier<String> workspaceImage) {
+      RunnerDocker docker,
+      NodeImages images,
+      RunnerSession session,
+      Supplier<String> workspaceImage) {
     String image = workspaceImage.get();
     Map<String, Object> data = new LinkedHashMap<>();
     data.put("image", image);
@@ -124,7 +132,8 @@ final class WorkspacesHealthChecks {
     boolean here = NodeImages.present(docker, image);
     data.put("pulled", !here);
     if (!here) {
-      Optional<String> failure = session.registry().pull(image);
+      // The same pull a launch or the estate's pre-pull may already have under way, joined.
+      Optional<String> failure = images.ensure(session, image);
       if (failure.isPresent()) {
         return RunnerHealthCheck.Result.failed(failure.get(), data);
       }

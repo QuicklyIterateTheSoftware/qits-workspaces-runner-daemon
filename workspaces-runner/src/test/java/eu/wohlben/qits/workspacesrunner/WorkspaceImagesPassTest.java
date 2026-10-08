@@ -22,7 +22,7 @@ import org.junit.jupiter.api.io.TempDir;
 /**
  * {@link WorkspaceImagesPass} against a node's images: only the workspace image's repository, never
  * the current tag or the same image under another tag, never one a container was created from, and
- * nothing at all before the first estate.
+ * nothing at all before the first estate or while the current image is not on the node yet.
  */
 @EnabledOnOs(OS.LINUX)
 class WorkspaceImagesPassTest {
@@ -70,6 +70,19 @@ class WorkspaceImagesPassTest {
     assertEquals(List.of(List.of("image", "rm", REPO + ":2026.1004.1")), removals);
     assertTrue(
         docker.calls().stream().noneMatch(c -> c.contains("prune")), "never a prune of its own");
+  }
+
+  @Test
+  void whileTheCurrentImageIsNotHereYetItRemovesNothing() throws Exception {
+    // The estate named it, but its pull has not landed: the old tags hold the layers it reuses.
+    docker.answerFor("image-inspect", CURRENT, 1, "", "Error: No such image: " + CURRENT);
+
+    new WorkspaceImagesPass(runnerDocker, () -> CURRENT).run(context());
+
+    assertTrue(
+        docker.calls().stream()
+            .noneMatch(c -> c.size() >= 2 && c.get(0).equals("image") && c.get(1).equals("rm")),
+        "no image rm before the current image is here: " + docker.calls());
   }
 
   @Test

@@ -17,6 +17,13 @@ import java.util.function.Supplier;
  * ps -a --filter ancestor=}; and {@code docker image rm} without {@code -f} refuses one a container
  * uses anyway. Never {@code system prune}, never {@code image prune -a}. Before the first {@code
  * estate} the current image is unknown, and the pass removes nothing.
+ *
+ * <p><b>Nothing goes before the current image is here.</b> The latest {@code estate} names the
+ * current image whether or not the node has it yet, and while it is still being pulled — or after
+ * its pull failed — the old tags are the only workspace images on the node proven to run, and they
+ * hold the base layers the pull is about to reuse. Removing them then is what turned a slow pull
+ * into a failed launch (qits-1114). So a pass whose current image does not inspect removes nothing,
+ * scheduled or run from the {@code estate}: a failed pull prunes nothing, whichever path ran.
  */
 final class WorkspaceImagesPass implements HousekeepingPass {
 
@@ -45,8 +52,16 @@ final class WorkspaceImagesPass implements HousekeepingPass {
     String repository = repository(current);
     RunnerDocker.Result currentId =
         docker.run(LifecycleArgv.imageInspect(docker.binary(), current));
-    // The current image's id, when it is here: a second tag of the same image is the same bytes.
-    String keepId = currentId.ok() ? currentId.stdout().strip() : "";
+    if (!currentId.ok()) {
+      context
+          .log()
+          .infof(
+              "workspaces-runner removes no workspace image: the current one, %s, is not here yet",
+              current);
+      return;
+    }
+    // A second tag of the current image is the same bytes, and is kept with it.
+    String keepId = currentId.stdout().strip();
     RunnerDocker.Result listed = docker.run(LifecycleArgv.imageList(docker.binary()));
     if (!listed.ok() || listed.stdoutTruncated()) {
       context.log().warnf("workspaces-runner could not list the node's images: %s", listed.detail());

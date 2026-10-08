@@ -74,16 +74,19 @@ final class WorkspaceLauncher {
   private final WorkspaceNames names;
   private final NodeVolumes volumes;
   private final WorkspaceContainers containers;
+  private final NodeImages images;
 
   WorkspaceLauncher(
       RunnerDocker docker,
       WorkspaceNames names,
       NodeVolumes volumes,
-      WorkspaceContainers containers) {
+      WorkspaceContainers containers,
+      NodeImages images) {
     this.docker = docker;
     this.names = names;
     this.volumes = volumes;
     this.containers = containers;
+    this.images = images;
   }
 
   /** {@code qits.workspaces.runner.spec}: an own-namespace label, so only the runner writes it. */
@@ -137,7 +140,7 @@ final class WorkspaceLauncher {
     } catch (IllegalArgumentException refused) {
       return failed(rowId, "the workspace spec was refused: " + refused.getMessage());
     }
-    Optional<String> notHere = NodeImages.ensure(docker, session, spec.image());
+    Optional<String> notHere = images.ensure(session, spec.image());
     if (notHere.isPresent()) {
       return failed(rowId, "could not pull " + spec.image() + ": " + brief(notHere.get()));
     }

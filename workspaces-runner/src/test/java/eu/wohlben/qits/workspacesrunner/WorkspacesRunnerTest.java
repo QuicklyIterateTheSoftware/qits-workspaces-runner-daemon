@@ -528,7 +528,9 @@ class WorkspacesRunnerTest {
             + "\n",
         "");
     docker.answerFor("ps", "ancestor=sha256:aaaa", 0, "", "");
+    docker.hang("pull", 1);
     host.send(new Estate(List.of(1L, 2L), NEW_WORKSPACE_IMAGE));
+    theNewImageArrivesWithItsPull();
     host.await(LoginState.class, 2);
 
     List<List<String>> calls = docker.calls().stream().map(FakeDocker::withoutConfig).toList();
@@ -561,7 +563,9 @@ class WorkspacesRunnerTest {
         "");
     // A stopped workspace is still that old image's.
     docker.answerFor("ps", "ancestor=sha256:aaaa", 0, "c0ffee\n", "");
+    docker.hang("pull", 1);
     host.send(new Estate(List.of(1L, 2L), NEW_WORKSPACE_IMAGE));
+    theNewImageArrivesWithItsPull();
     host.await(LoginState.class, 2);
 
     List<List<String>> calls = docker.calls().stream().map(FakeDocker::withoutConfig).toList();
@@ -623,7 +627,9 @@ class WorkspacesRunnerTest {
             + "\n",
         "");
     docker.answerFor("ps", "ancestor=sha256:aaaa", 0, "", "");
+    docker.hang("pull", 1);
     host.send(new Estate(List.of(1L, 2L), NEW_WORKSPACE_IMAGE));
+    theNewImageArrivesWithItsPull();
     host.await(LoginState.class, 2);
     List<String> removeOld = List.of("image", "rm", WORKSPACE_IMAGE);
     assertEquals(
@@ -1450,6 +1456,24 @@ class WorkspacesRunnerTest {
         0,
         "c" + rowId + "|" + status + "|" + exitCode + "|" + rowId + "|" + specHash + "\n",
         "");
+  }
+
+  /**
+   * {@link #NEW_WORKSPACE_IMAGE} lands on the fake node with its pull, as on a real one: absent
+   * until the pull is under way — which the caller holds a second ({@code hang("pull", 1)}, set
+   * before the {@code estate}), so the swap cannot lose the race — and inspectable from then on.
+   * Without it the images pass would find the current image missing and, rightly, remove nothing
+   * (qits-1114).
+   */
+  private void theNewImageArrivesWithItsPull() throws Exception {
+    List<String> pull = List.of("pull", NEW_WORKSPACE_IMAGE);
+    long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+    while (docker.calls().stream().map(FakeDocker::withoutConfig).noneMatch(pull::equals)) {
+      assertTrue(
+          System.nanoTime() < until, () -> "the new image is never pulled: " + docker.calls());
+      Thread.sleep(10);
+    }
+    docker.answerFor("image-inspect", NEW_WORKSPACE_IMAGE, 0, "sha256:bbbb\n", "");
   }
 
   /** Both login probes answered present, so no probe leaves a container in the fake's state. */

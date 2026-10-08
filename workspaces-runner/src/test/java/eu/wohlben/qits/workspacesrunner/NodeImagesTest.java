@@ -9,19 +9,25 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Supplier;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
 
 /**
  * {@link NodeImages}' one pull per image (qits-1114): callers that arrive while a pull is under way
- * wait for it rather than start their own, and a pull that ended — either way — is forgotten, so
- * the next caller tries again. Driven through the {@code shared} seam; the docker it is given is
- * never asked.
+ * wait for it rather than start their own, an interrupted caller fails alone while the pull goes on,
+ * and a pull that ended — either way — is forgotten, so the next caller tries again. Driven through
+ * the {@code shared} seam; the docker it is given is never asked.
  */
 class NodeImagesTest {
 
   private static final String IMAGE = "registry.example:5000/qits/workspace:2026.1004.2";
 
   private final NodeImages images = new NodeImages(null);
+
+  @AfterEach
+  void tearDown() {
+    images.close();
+  }
 
   @Test
   void twoCallersForTheSameImageShareOnePullAndItsAnswer() throws Exception {
@@ -43,10 +49,7 @@ class NodeImagesTest {
     Thread b = new Thread(() -> second.set(images.shared(IMAGE, pull)));
     b.start();
     // Parked either on the first caller's pull or, were it pulling itself, on the same latch.
-    long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
-    while (b.getState() != Thread.State.WAITING && System.nanoTime() < until) {
-      Thread.sleep(5);
-    }
+    awaitWaiting(b);
     release.countDown();
     a.join(10_000);
     b.join(10_000);
@@ -54,6 +57,44 @@ class NodeImagesTest {
     assertEquals(1, pulls.get(), "one pull for both callers");
     assertEquals(Optional.of("Error: pull access denied"), first.get());
     assertEquals(first.get(), second.get(), "the waiter gets the puller's answer");
+  }
+
+  @Test
+  void aCallerInterruptedWhileWaitingFailsAloneAndThePullGoesOnForTheOthers() throws Exception {
+    // The health check that started the pull is cancelled at its deadline; a launch waits on.
+    AtomicInteger pulls = new AtomicInteger();
+    CountDownLatch started = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    Supplier<Optional<String>> pull =
+        () -> {
+          pulls.incrementAndGet();
+          started.countDown();
+          await(release);
+          return Thread.currentThread().isInterrupted()
+              ? Optional.of("interrupted")
+              : Optional.empty();
+        };
+    AtomicReference<Optional<String>> starter = new AtomicReference<>();
+    AtomicReference<Optional<String>> waiter = new AtomicReference<>();
+    Thread a = new Thread(() -> starter.set(images.shared(IMAGE, pull)));
+    a.start();
+    assertTrue(started.await(10, TimeUnit.SECONDS), "the first caller starts the pull");
+    Thread b = new Thread(() -> waiter.set(images.shared(IMAGE, pull)));
+    b.start();
+    awaitWaiting(a);
+    awaitWaiting(b);
+    a.interrupt();
+    a.join(10_000);
+    assertEquals(
+        Optional.of("interrupted while waiting for the pull of " + IMAGE),
+        starter.get(),
+        "the interrupted caller answers its own failure");
+    assertTrue(b.isAlive(), "the other caller still waits on the pull");
+    release.countDown();
+    b.join(10_000);
+
+    assertEquals(Optional.empty(), waiter.get(), "the pull itself was never interrupted");
+    assertEquals(1, pulls.get(), "one pull for both callers");
   }
 
   @Test
@@ -90,6 +131,13 @@ class NodeImagesTest {
         failed.isPresent() && failed.get().contains("docker vanished"),
         "why, not a throw: " + failed);
     assertEquals(Optional.empty(), images.shared(IMAGE, Optional::empty), "pulled again");
+  }
+
+  private static void awaitWaiting(Thread t) throws InterruptedException {
+    long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
+    while (t.getState() != Thread.State.WAITING && System.nanoTime() < until) {
+      Thread.sleep(5);
+    }
   }
 
   private static void await(CountDownLatch latch) {

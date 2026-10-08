@@ -375,6 +375,7 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
   void close() {
     timer.shutdownNow();
     healthChecks.close();
+    images.close();
   }
 
   // --- the frames ---------------------------------------------------------------------------------

@@ -67,9 +67,21 @@ public final class HealthChecks {
     return outcomes;
   }
 
-  /** Stop the threads; for a suite's teardown and the runner's end. */
+  /**
+   * Stop the threads; for a suite's teardown and the runner's end. A check under way gets a few
+   * seconds to end before it is interrupted, since an interrupted docker call leaves its process
+   * running on.
+   */
   public void close() {
-    pool.shutdownNow();
+    pool.shutdown();
+    try {
+      if (!pool.awaitTermination(5, TimeUnit.SECONDS)) {
+        pool.shutdownNow();
+      }
+    } catch (InterruptedException interrupted) {
+      pool.shutdownNow();
+      Thread.currentThread().interrupt();
+    }
   }
 
   private Outcome runOne(RunnerHealthCheck check, RunnerSession session) {

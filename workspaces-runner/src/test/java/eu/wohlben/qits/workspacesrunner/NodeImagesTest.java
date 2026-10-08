@@ -3,6 +3,7 @@ package eu.wohlben.qits.workspacesrunner;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.time.Duration;
 import java.util.Optional;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -15,8 +16,9 @@ import org.junit.jupiter.api.Test;
 /**
  * {@link NodeImages}' one pull per image (qits-1114): callers that arrive while a pull is under way
  * wait for it rather than start their own, an interrupted caller fails alone while the pull goes on,
- * and a pull that ended — either way — is forgotten, so the next caller tries again. Driven through
- * the {@code shared} seam; the docker it is given is never asked.
+ * and a pull that ended — either way — is forgotten, so the next caller tries again. A caller with
+ * a deadline waits a bounded time and hears {@code PULLING}, never cancelling the pull (qits-959).
+ * Driven through the {@code shared} seams; the docker it is given is never asked.
  */
 class NodeImagesTest {
 
@@ -131,6 +133,45 @@ class NodeImagesTest {
         failed.isPresent() && failed.get().contains("docker vanished"),
         "why, not a throw: " + failed);
     assertEquals(Optional.empty(), images.shared(IMAGE, Optional::empty), "pulled again");
+  }
+
+  @Test
+  void aBoundedWaitThatRunsOutAnswersPullingAndThePullGoesOnForAnUnboundedCaller()
+      throws Exception {
+    // The health check waits one docker deadline and moves on; the launch waits for the answer.
+    AtomicInteger pulls = new AtomicInteger();
+    CountDownLatch release = new CountDownLatch(1);
+    Supplier<Optional<String>> pull =
+        () -> {
+          pulls.incrementAndGet();
+          await(release);
+          return Thread.currentThread().isInterrupted()
+              ? Optional.of("interrupted")
+              : Optional.empty();
+        };
+    assertEquals(NodeImages.PULLING, images.shared(IMAGE, pull, Duration.ofMillis(100)));
+    assertTrue(images.pulling(IMAGE), "the pull is still under way");
+
+    AtomicReference<Optional<String>> waiter = new AtomicReference<>();
+    Thread b = new Thread(() -> waiter.set(images.shared(IMAGE, pull)));
+    b.start();
+    awaitWaiting(b);
+    assertTrue(b.isAlive(), "the unbounded caller waits on the same pull");
+    release.countDown();
+    b.join(10_000);
+
+    assertEquals(Optional.empty(), waiter.get(), "the pull was never cancelled nor interrupted");
+    assertEquals(1, pulls.get(), "one pull for both callers");
+  }
+
+  @Test
+  void aBoundedWaitThatOutlastsThePullAnswersItsOutcome() {
+    assertEquals(
+        NodeImages.HERE, images.shared(IMAGE, Optional::empty, Duration.ofSeconds(10)));
+    assertEquals(
+        new NodeImages.Failed("Error: pull access denied"),
+        images.shared(
+            IMAGE, () -> Optional.of("Error: pull access denied"), Duration.ofSeconds(10)));
   }
 
   private static void awaitWaiting(Thread t) throws InterruptedException {

@@ -89,6 +89,17 @@ workspace's affair, not a broken node, and the point of the check is to put it i
 who would otherwise never see it. Only `workspaceImage` and `selfTest` write to docker; the others
 only read, so the answer is how a person sees the node without its shell.
 
+**A pull still under way is not a fault** (qits-959). A new workspace-image release takes minutes
+to download on every node, far longer than a check may take, and a check that waited it out timed
+out and quarantined a healthy node. So `workspaceImage` waits for the pull one docker deadline at
+most and then answers ok with `pulling: true` (`<image> is still being pulled; not a node fault`)
+while the pull goes on for the launch and the pre-pull that share it; a pull that *failed* still
+fails the check. `selfTest` never waits for the pull at all: while the pin is not here it starts the
+newest other tag of the same repository the node still has — the runner keeps the previous tags
+until the new one is here — and reports both (`image` is what ran, `pin` the estate's image). Only
+a node with no workspace image whatsoever, on its very first pull, fails `selfTest`, saying so; the
+next check after the pull passes.
+
 ### Logging in the agent CLIs (once per node)
 
 The workspaces on one runner share one agent home: the volume

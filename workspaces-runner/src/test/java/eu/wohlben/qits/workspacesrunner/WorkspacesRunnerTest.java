@@ -548,7 +548,7 @@ class WorkspacesRunnerTest {
     docker.answerFor("ps", "ancestor=sha256:aaaa", 0, "", "");
     docker.hang("pull", 1);
     host.send(new Estate(List.of(1L, 2L), NEW_WORKSPACE_IMAGE));
-    theNewImageArrivesWithItsPull();
+    theImageArrivesWithItsPull(NEW_WORKSPACE_IMAGE);
     host.await(LoginState.class, 2);
 
     List<List<String>> calls = docker.calls().stream().map(FakeDocker::withoutConfig).toList();
@@ -583,7 +583,7 @@ class WorkspacesRunnerTest {
     docker.answerFor("ps", "ancestor=sha256:aaaa", 0, "c0ffee\n", "");
     docker.hang("pull", 1);
     host.send(new Estate(List.of(1L, 2L), NEW_WORKSPACE_IMAGE));
-    theNewImageArrivesWithItsPull();
+    theImageArrivesWithItsPull(NEW_WORKSPACE_IMAGE);
     host.await(LoginState.class, 2);
 
     List<List<String>> calls = docker.calls().stream().map(FakeDocker::withoutConfig).toList();
@@ -647,7 +647,7 @@ class WorkspacesRunnerTest {
     docker.answerFor("ps", "ancestor=sha256:aaaa", 0, "", "");
     docker.hang("pull", 1);
     host.send(new Estate(List.of(1L, 2L), NEW_WORKSPACE_IMAGE));
-    theNewImageArrivesWithItsPull();
+    theImageArrivesWithItsPull(NEW_WORKSPACE_IMAGE);
     host.await(LoginState.class, 2);
     List<String> removeOld = List.of("image", "rm", WORKSPACE_IMAGE);
     assertEquals(
@@ -727,19 +727,19 @@ class WorkspacesRunnerTest {
     String name = "qits-workspaces-runner-health-check-r1";
     docker.answerFor("image-inspect", WORKSPACE_IMAGE, 1, "", "Error: No such image");
     docker.answerFor("inspect", name, 0, "abc|running/none|2026-10-05T04:38:19Z\n", "");
+    docker.hang("pull", 1);
     probesAnswer();
     estateThenAck();
     start("t");
     host.await(Hello.class);
     awaitTrue(() -> WORKSPACE_IMAGE.equals(domain.workspaceImage()));
+    theImageArrivesWithItsPull(WORKSPACE_IMAGE);
 
     host.send(new HealthCheck());
     HealthChecked checked = host.await(HealthChecked.class);
-    // The fake's image inspect never finds the image, even after the pull, so workspaceImage
-    // reports it unreadable; the self-test is the check this case is about.
-    CheckResult selfTest =
-        checked.checks().stream().filter(c -> c.name().equals("selfTest")).findFirst().orElseThrow();
+    CheckResult selfTest = check(checked, "selfTest");
     assertTrue(selfTest.ok(), selfTest.detail());
+    assertJsonEquals(selfTestData(WORKSPACE_IMAGE, WORKSPACE_IMAGE), selfTest.data());
 
     List<List<String>> calls = docker.calls();
     List<String> pull =
@@ -794,6 +794,133 @@ class WorkspacesRunnerTest {
     assertFalse(checked.ok());
     assertTrue(checked.detail().contains("no estate"), checked.detail());
     assertTrue(docker.calls("run").isEmpty());
+  }
+
+  // ---- a pull still under way is not a node fault (qits-959) --------------------------------------
+  //
+  // Each runs with a two-second docker deadline — workspaceImage's own is three of them, six
+  // seconds — and a pull of the pin hanging seven: before qits-959 the check waited the pull out,
+  // was cancelled at its deadline as "timed out", and the server quarantined the node.
+
+  /** The pin's predecessor, still on the node while the pin is pulled. */
+  private static final String PREVIOUS_WORKSPACE_IMAGE =
+      "registry.example:5000/qits/workspace:2026.1003.9";
+
+  @Test
+  void aWorkspaceImageStillBeingPulledPassesAndTheSelfTestRunsTheNewestTagAlreadyHere()
+      throws Exception {
+    String probe = "qits-workspaces-runner-health-check-r1";
+    dockerTimeoutSeconds = 2;
+    docker.answerFor("image-inspect", WORKSPACE_IMAGE, 1, "", "Error: No such image");
+    docker.hang("pull", 7);
+    // Newest first, as docker lists them: a dangling layer set, the predecessor, an older tag still,
+    // and another repository's image that merely shares a tag.
+    docker.answer(
+        "image-ls",
+        0,
+        String.join(
+                "\n",
+                "registry.example:5000/qits/workspace:<none>|sha256:dddd",
+                PREVIOUS_WORKSPACE_IMAGE + "|sha256:aaaa",
+                "registry.example:5000/qits/workspace:2026.1002.1|sha256:cccc",
+                "registry.example:5000/qits/other:2026.1004.1|sha256:eeee")
+            + "\n",
+        "");
+    docker.answerFor("inspect", probe, 0, "abc|running/none|2026-10-05T04:38:19Z\n", "");
+    probesAnswer();
+    estateThenAck();
+    start("t");
+    host.await(Hello.class);
+    // The estate's pre-pull is under way, and is what the check finds.
+    awaitPullOf(WORKSPACE_IMAGE);
+
+    long sent = System.nanoTime();
+    host.send(new HealthCheck());
+    HealthChecked checked = host.await(HealthChecked.class);
+    long took = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - sent);
+
+    assertTrue(checked.ok(), checked.detail());
+    assertTrue(took < 5_000, "answered while the pull still runs, not after it: " + took + " ms");
+    CheckResult image = check(checked, "workspaceImage");
+    assertTrue(image.ok(), image.detail());
+    assertEquals(WORKSPACE_IMAGE + " is still being pulled; not a node fault", image.detail());
+    Map<String, Object> imageData = new LinkedHashMap<>();
+    imageData.put("image", WORKSPACE_IMAGE);
+    imageData.put("pulled", false);
+    imageData.put("pulling", true);
+    imageData.put("id", null);
+    imageData.put("created", null);
+    assertJsonEquals(imageData, image.data());
+
+    CheckResult selfTest = check(checked, "selfTest");
+    assertTrue(selfTest.ok(), selfTest.detail());
+    assertTrue(selfTest.detail().contains(WORKSPACE_IMAGE + " is not here yet"), selfTest.detail());
+    assertJsonEquals(selfTestData(PREVIOUS_WORKSPACE_IMAGE, WORKSPACE_IMAGE), selfTest.data());
+    assertEquals(
+        PREVIOUS_WORKSPACE_IMAGE, runOf(probe).getLast(), "the predecessor is what was started");
+    assertEquals(
+        List.of(List.of("pull", WORKSPACE_IMAGE)),
+        docker.calls("pull"),
+        "one pull, the pre-pull's, joined by the check");
+  }
+
+  @Test
+  void aWorkspaceImagePullThatFailsStillFailsTheCheckWithThePullsWords() throws Exception {
+    docker.answerFor("image-inspect", WORKSPACE_IMAGE, 1, "", "Error: No such image");
+    docker.answerFor("pull", WORKSPACE_IMAGE, 1, "", "Error: pull access denied");
+    probesAnswer();
+    estateThenAck();
+    start("t");
+    host.await(LoginState.class);
+
+    host.send(new HealthCheck());
+    HealthChecked checked = host.await(HealthChecked.class);
+
+    assertFalse(checked.ok());
+    CheckResult image = check(checked, "workspaceImage");
+    assertFalse(image.ok());
+    assertTrue(image.detail().contains("pull access denied"), image.detail());
+    Map<String, Object> imageData = new LinkedHashMap<>();
+    imageData.put("image", WORKSPACE_IMAGE);
+    imageData.put("pulled", true);
+    imageData.put("pulling", false);
+    assertJsonEquals(imageData, image.data());
+    // Nothing of the repository is here and nothing is pulling it: the self-test says which.
+    CheckResult selfTest = check(checked, "selfTest");
+    assertFalse(selfTest.ok());
+    assertTrue(selfTest.detail().contains("is not being pulled"), selfTest.detail());
+  }
+
+  @Test
+  void aNodeWithNoWorkspaceImageYetFailsTheSelfTestWithoutWaitingForThePull() throws Exception {
+    String probe = "qits-workspaces-runner-health-check-r1";
+    dockerTimeoutSeconds = 2;
+    docker.answerFor("image-inspect", WORKSPACE_IMAGE, 1, "", "Error: No such image");
+    docker.hang("pull", 7);
+    docker.answer("image-ls", 0, "registry.example:5000/qits/other:1|sha256:eeee\n", "");
+    probesAnswer();
+    estateThenAck();
+    start("t");
+    host.await(Hello.class);
+    awaitPullOf(WORKSPACE_IMAGE);
+
+    long sent = System.nanoTime();
+    host.send(new HealthCheck());
+    HealthChecked checked = host.await(HealthChecked.class);
+    long took = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - sent);
+
+    assertFalse(checked.ok());
+    assertTrue(took < 5_000, "answered while the pull still runs, not after it: " + took + " ms");
+    assertTrue(check(checked, "workspaceImage").ok(), check(checked, "workspaceImage")::detail);
+    CheckResult selfTest = check(checked, "selfTest");
+    assertFalse(selfTest.ok());
+    assertEquals(
+        WORKSPACE_IMAGE
+            + " is still being pulled, and the node has no other registry.example:5000/qits/workspace"
+            + " image to self-test yet",
+        selfTest.detail());
+    assertJsonEquals(selfTestData(null, WORKSPACE_IMAGE), selfTest.data());
+    assertTrue(runsOf(probe).isEmpty(), () -> "nothing to start: " + docker.calls());
   }
 
   // ---- the named checks ----------------------------------------------------------------------------
@@ -874,10 +1001,12 @@ class WorkspacesRunnerTest {
     Map<String, Object> image = new LinkedHashMap<>();
     image.put("image", WORKSPACE_IMAGE);
     image.put("pulled", false);
+    image.put("pulling", false);
     image.put("id", "sha256:ws");
     image.put("created", "2026-10-04T08:00:00Z");
     assertJsonEquals(image, check(checked, "workspaceImage").data());
-    assertJsonEquals(Map.of("image", WORKSPACE_IMAGE), check(checked, "selfTest").data());
+    assertJsonEquals(
+        selfTestData(WORKSPACE_IMAGE, WORKSPACE_IMAGE), check(checked, "selfTest").data());
 
     Map<String, Object> container = new LinkedHashMap<>();
     container.put("name", ws(1));
@@ -1137,6 +1266,14 @@ class WorkspacesRunnerTest {
           List.of("image", "rm"),
           List.of("image", "prune"));
 
+  /** {@code selfTest}'s data: the image it started, and the estate's pin. */
+  private static Map<String, Object> selfTestData(String image, String pin) {
+    Map<String, Object> data = new LinkedHashMap<>();
+    data.put("image", image);
+    data.put("pin", pin);
+    return data;
+  }
+
   private static CheckResult check(HealthChecked checked, String name) {
     return checked.checks().stream()
         .filter(c -> c.name().equals(name))
@@ -1350,6 +1487,9 @@ class WorkspacesRunnerTest {
 
   private long housekeepingMillis = TimeUnit.HOURS.toMillis(6);
 
+  /** Every docker call's deadline; a case about a check's own deadline shrinks it. */
+  private int dockerTimeoutSeconds = 10;
+
   private Map<String, String> env(String token) {
     Map<String, String> env = new HashMap<>();
     env.put(IDENTITY.env(RunnerSettings.URL), host.base());
@@ -1358,7 +1498,7 @@ class WorkspacesRunnerTest {
     env.put(IDENTITY.env(RunnerSettings.STATE_DIR), state.toString());
     env.put(IDENTITY.env(RunnerSettings.SLOTS), "2");
     env.put(IDENTITY.env(RunnerSettings.DOCKER_BINARY), docker.binary());
-    env.put(IDENTITY.env(RunnerSettings.DOCKER_TIMEOUT), "10");
+    env.put(IDENTITY.env(RunnerSettings.DOCKER_TIMEOUT), Integer.toString(dockerTimeoutSeconds));
     return env;
   }
 
@@ -1477,21 +1617,26 @@ class WorkspacesRunnerTest {
   }
 
   /**
-   * {@link #NEW_WORKSPACE_IMAGE} lands on the fake node with its pull, as on a real one: absent
-   * until the pull is under way — which the caller holds a second ({@code hang("pull", 1)}, set
-   * before the {@code estate}), so the swap cannot lose the race — and inspectable from then on.
-   * Without it the images pass would find the current image missing and, rightly, remove nothing
-   * (qits-1114).
+   * {@code image} lands on the fake node with its pull, as on a real one: absent until the pull is
+   * under way — which the caller holds a second ({@code hang("pull", 1)}, set before the {@code
+   * estate}), so the swap cannot lose the race — and inspectable from then on. Without it the
+   * images pass would find the current image missing and, rightly, remove nothing (qits-1114), and
+   * the self-test would look for an older tag to start instead (qits-959).
    */
-  private void theNewImageArrivesWithItsPull() throws Exception {
-    List<String> pull = List.of("pull", NEW_WORKSPACE_IMAGE);
+  private void theImageArrivesWithItsPull(String image) throws Exception {
+    awaitPullOf(image);
+    docker.answerFor("image-inspect", image, 0, "sha256:bbbb\n", "");
+  }
+
+  /** A {@code docker pull image} has been called — started, not necessarily ended. */
+  private void awaitPullOf(String image) throws Exception {
+    List<String> pull = List.of("pull", image);
     long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
     while (docker.calls().stream().map(FakeDocker::withoutConfig).noneMatch(pull::equals)) {
       assertTrue(
           System.nanoTime() < until, () -> "the new image is never pulled: " + docker.calls());
       Thread.sleep(10);
     }
-    docker.answerFor("image-inspect", NEW_WORKSPACE_IMAGE, 0, "sha256:bbbb\n", "");
   }
 
   /** Both login probes answered present, so no probe leaves a container in the fake's state. */

@@ -6,8 +6,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import eu.wohlben.qits.runner.toolkit.RunnerDocker;
 import eu.wohlben.qits.runner.toolkit.RunnerIdentity;
+import eu.wohlben.qits.runner.toolkit.health.RunnerHealthCheck;
 import eu.wohlben.qits.runner.toolkit.testing.FakeDocker;
-import eu.wohlben.qits.workspacesrunner.health.RunnerHealthCheck;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Clock;

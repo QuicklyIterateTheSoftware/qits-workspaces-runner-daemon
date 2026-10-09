@@ -1,6 +1,7 @@
 package eu.wohlben.qits.workspacesrunner.protocol;
 
 import eu.wohlben.qits.runner.protocol.RunnerVocabulary;
+import eu.wohlben.qits.runner.protocol.health.HealthWire;
 import java.util.Set;
 
 /**
@@ -96,7 +97,7 @@ public final class WorkspacesRunnerProtocol {
     public static final String STOP = "stop";
     public static final String DELETE = "delete";
     public static final String PROBE_LOGIN = "probeLogin";
-    public static final String HEALTH_CHECK = "healthCheck";
+    public static final String HEALTH_CHECK = HealthWire.Type.HEALTH_CHECK;
     // runner -> qits-workspaces
     public static final String INVENTORY = "inventory";
     public static final String LAUNCHED = "launched";
@@ -105,7 +106,7 @@ public final class WorkspacesRunnerProtocol {
     public static final String DELETED = "deleted";
     public static final String EXITED = "exited";
     public static final String LOGIN_STATE = "loginState";
-    public static final String HEALTH_CHECKED = "healthChecked";
+    public static final String HEALTH_CHECKED = HealthWire.Type.HEALTH_CHECKED;
 
     /** Every workspace type — what {@link WorkspacesRunnerCodec#types()} answers. */
     public static final Set<String> ALL =
@@ -147,11 +148,11 @@ public final class WorkspacesRunnerProtocol {
     public static final String KIMI = "kimi";
     public static final String CHECKED_AT = "checkedAt";
     public static final String OK = "ok";
-    // HealthCheck, HealthChecked and its named checks
-    public static final String REQUEST_ID = "requestId";
-    public static final String CHECKS = "checks";
-    public static final String NAME = "name";
-    public static final String DATA = "data";
+    // HealthCheck, HealthChecked and its named checks: qits-runner-protocol's HealthWire spells them
+    public static final String REQUEST_ID = HealthWire.Field.REQUEST_ID;
+    public static final String CHECKS = HealthWire.Field.CHECKS;
+    public static final String NAME = HealthWire.Field.NAME;
+    public static final String DATA = HealthWire.Field.DATA;
     // WorkspaceSpec
     public static final String IMAGE = "image";
     public static final String ENV = "env";

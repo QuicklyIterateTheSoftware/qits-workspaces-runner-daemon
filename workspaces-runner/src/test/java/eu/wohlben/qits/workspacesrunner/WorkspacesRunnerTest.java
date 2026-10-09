@@ -14,6 +14,7 @@ import eu.wohlben.qits.runner.protocol.RunnerCodec;
 import eu.wohlben.qits.runner.protocol.RunnerMessage;
 import eu.wohlben.qits.runner.protocol.RunnerWire;
 import eu.wohlben.qits.runner.protocol.Upgrade;
+import eu.wohlben.qits.runner.protocol.health.CheckResult;
 import eu.wohlben.qits.runner.toolkit.Decommission;
 import eu.wohlben.qits.runner.toolkit.HostFacts;
 import eu.wohlben.qits.runner.toolkit.Housekeeping;
@@ -24,6 +25,8 @@ import eu.wohlben.qits.runner.toolkit.RunnerRuntime;
 import eu.wohlben.qits.runner.toolkit.RunnerSettings;
 import eu.wohlben.qits.runner.toolkit.SelfUpdate;
 import eu.wohlben.qits.runner.toolkit.Telemetry;
+import eu.wohlben.qits.runner.toolkit.health.DefaultHealthChecks;
+import eu.wohlben.qits.runner.toolkit.health.RunnerHealthCheck;
 import eu.wohlben.qits.runner.toolkit.testing.FakeDocker;
 import eu.wohlben.qits.runner.toolkit.testing.FakeRunnerHost;
 import eu.wohlben.qits.workspacesrunner.protocol.Delete;
@@ -39,8 +42,6 @@ import eu.wohlben.qits.workspacesrunner.protocol.Launched;
 import eu.wohlben.qits.workspacesrunner.protocol.LoginPresence;
 import eu.wohlben.qits.workspacesrunner.protocol.LoginState;
 import eu.wohlben.qits.workspacesrunner.protocol.Mount;
-import eu.wohlben.qits.workspacesrunner.health.RunnerHealthCheck;
-import eu.wohlben.qits.workspacesrunner.protocol.CheckResult;
 import eu.wohlben.qits.workspacesrunner.protocol.ProbeLogin;
 import eu.wohlben.qits.workspacesrunner.protocol.Stop;
 import eu.wohlben.qits.workspacesrunner.protocol.Stopped;
@@ -959,7 +960,7 @@ class WorkspacesRunnerTest {
         "inspect",
         self,
         0,
-        "selffull|/" + self + "|running|2026-10-05T03:00:00Z|" + NodeInventoryCheck.ZERO_TIME + "|0|"
+        "selffull|/" + self + "|running|2026-10-05T03:00:00Z|" + DefaultHealthChecks.DOCKER_ZERO_TIME + "|0|"
             + "registry.example:5000/qits/qits-workspaces-runner:"
             + WorkspacesRunnerBinary.VERSION
             + "|<no value>|"
@@ -1184,7 +1185,7 @@ class WorkspacesRunnerTest {
               }
 
               @Override
-              public Result run(eu.wohlben.qits.runner.toolkit.RunnerSession session) {
+              public Result run(eu.wohlben.qits.runner.toolkit.health.HealthContext ctx) {
                 throw new IllegalStateException("broken on purpose");
               }
             })
@@ -1201,7 +1202,7 @@ class WorkspacesRunnerTest {
               }
 
               @Override
-              public Result run(eu.wohlben.qits.runner.toolkit.RunnerSession session)
+              public Result run(eu.wohlben.qits.runner.toolkit.health.HealthContext ctx)
                   throws Exception {
                 Thread.sleep(60_000);
                 return Result.ok("never", Map.of());

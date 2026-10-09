@@ -2,15 +2,16 @@ package eu.wohlben.qits.workspacesrunner;
 
 import eu.wohlben.qits.runner.toolkit.LifecycleArgv;
 import eu.wohlben.qits.runner.toolkit.RunnerDocker;
+import eu.wohlben.qits.runner.toolkit.RunnerIdentity;
 import eu.wohlben.qits.runner.toolkit.RunnerSession;
-import eu.wohlben.qits.workspacesrunner.health.HealthChecks;
-import eu.wohlben.qits.workspacesrunner.health.RunnerHealthCheck;
-import eu.wohlben.qits.workspacesrunner.protocol.CheckResult;
+import eu.wohlben.qits.runner.toolkit.health.DefaultHealthChecks;
+import eu.wohlben.qits.runner.toolkit.health.HealthChecks;
+import eu.wohlben.qits.runner.toolkit.health.HealthContext;
+import eu.wohlben.qits.runner.toolkit.health.RunnerHealthCheck;
 import eu.wohlben.qits.workspacesrunner.protocol.HealthChecked;
 import eu.wohlben.qits.workspacesrunner.protocol.LoginState;
+import eu.wohlben.qits.workspacesrunner.protocol.WorkspacesRunnerBinary;
 import java.time.Duration;
-import java.time.Instant;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -22,7 +23,8 @@ import java.util.function.Supplier;
  * order; the answer is ok only when every one is:
  *
  * <ol>
- *   <li>{@code docker} — the daemon answers; {@code data: {serverVersion}}. Read-only.
+ *   <li>{@code docker} — {@link DefaultHealthChecks#docker()}: the daemon answers; {@code data:
+ *       {serverVersion}}. Read-only.
  *   <li>{@code workspaceImage} — the estate's workspace image is on the node, pulled under the
  *       runner's login when it is not; {@code data: {image, pulled, pulling, id, created}}. Writes:
  *       the pull. It waits for that pull one docker deadline at most, and <b>a pull still under way
@@ -36,95 +38,71 @@ import java.util.function.Supplier;
  *       failed) the newest other tag of the pin's repository on the node — the image a launch would
  *       otherwise have proven — rather than blocking on the pull. A node with no workspace image at
  *       all yet (its first pull) has nothing to prove and fails. Writes: that one container.
- *   <li>{@code nodeInventory} — {@link NodeInventoryCheck}. Read-only.
+ *   <li>{@code nodeInventory} — {@link DefaultHealthChecks#nodeInventory}, at {@link
+ *       WorkspacesRunnerBinary#VERSION}. Read-only.
  *   <li>{@code login} — the last login probe's result, with no new probe; {@code data: {claude,
  *       kimi, checkedAt}}. Read-only, and always ok: presence is reported by {@code loginState} and
  *       is the operator's to change, so an absent login must never hold a runner in quarantine.
- *   <li>{@code session} — {@code data: {connected, connectedSince, slots, held}}, the slots of the
- *       last {@code Ack} and the rows the toolkit's slot ledger holds. Read-only.
+ *   <li>{@code session} — {@link DefaultHealthChecks#session()}: {@code data: {connected,
+ *       connectedSince, slots, held}}, the slots of the last {@code Ack} and the rows the toolkit's
+ *       slot ledger holds. Read-only.
  *   <li>{@code workspaceMemory} — {@link WorkspaceMemoryCheck}: each running workspace's cgroup
  *       memory cap, current use and {@code oom}/{@code oom_kill} counters, plus the node's {@code
  *       MemTotal}/{@code SwapTotal} and whether the running workspaces' own caps together outgrow
  *       it. Writes nothing; <b>always ok</b>, exactly like {@code login} — a workspace OOM-killed
  *       at its own cap is that workspace's affair, never a reason to quarantine the node.
  * </ol>
+ *
+ * <p>The registry, the runner's three shared checks and the report are qits-runner-javalib's
+ * ({@code toolkit.health}); the four workspace checks are registered between them here, so the
+ * names and their order on the wire are what they were before the lift. The workspace checks reach
+ * the session through {@code ctx.lookup(RunnerSession.class)}, which the domain's {@link
+ * HealthContext#of(RunnerSession, RunnerDocker, Supplier)} answers.
  */
 final class WorkspacesHealthChecks {
-
-  /** What the domain knows of its session, as the {@code session} check reads it. */
-  record SessionFacts(boolean connected, Instant connectedSince, Integer slots) {}
 
   private WorkspacesHealthChecks() {}
 
   static void registerDefaults(
       HealthChecks checks,
+      RunnerIdentity identity,
+      String runnerId,
       RunnerDocker docker,
       NodeImages images,
       NodeHealthCheck selfTest,
       Duration selfTestWindow,
-      NodeInventoryCheck inventory,
       Supplier<String> workspaceImage,
       Supplier<LoginState> lastLogin,
-      Supplier<SessionFacts> session,
       RunnerHealthCheck workspaceMemory) {
     Duration call = docker.deadline();
     checks
-        .register(named("docker", null, s -> docker(docker)))
+        .register(DefaultHealthChecks.docker())
         .register(
-            named(
+            RunnerHealthCheck.named(
                 "workspaceImage",
                 call.multipliedBy(3),
-                s -> image(docker, images, s, workspaceImage)))
+                ctx -> image(docker, images, session(ctx), workspaceImage)))
         .register(
-            named(
+            RunnerHealthCheck.named(
                 "selfTest",
                 selfTestWindow.plus(call.multipliedBy(6)),
-                s -> selfTest(docker, images, selfTest, s, workspaceImage.get())))
-        .register(inventory)
-        .register(named("login", null, s -> login(lastLogin.get())))
-        .register(named("session", null, s -> session(session.get(), s)))
+                ctx -> selfTest(docker, images, selfTest, session(ctx), workspaceImage.get())))
+        // WorkspaceContainers.absent is the toolkit's default "no such object" test, word for word.
+        .register(
+            DefaultHealthChecks.nodeInventory(
+                identity, runnerId, WorkspacesRunnerBinary.VERSION, null))
+        .register(RunnerHealthCheck.named("login", null, ctx -> login(lastLogin.get())))
+        .register(DefaultHealthChecks.session())
         .register(workspaceMemory);
   }
 
-  /** The {@code healthChecked} for a run of {@code checks}: ok only when all of them are. */
-  static HealthChecked answer(String requestId, List<HealthChecks.Outcome> outcomes) {
-    List<String> failed = new ArrayList<>();
-    for (HealthChecks.Outcome o : outcomes) {
-      if (!o.ok()) {
-        failed.add(o.name() + ": " + o.detail());
-      }
-    }
-    String detail =
-        failed.isEmpty()
-            ? "all " + outcomes.size() + " checks passed"
-            : String.join("; ", failed);
-    return new HealthChecked(
-        failed.isEmpty(),
-        detail,
-        requestId,
-        outcomes.stream()
-            .map(
-                o ->
-                    new CheckResult(o.name(), o.ok(), o.detail(), o.data()))
-            .toList());
+  /** The runner's session, which the domain's context always carries. */
+  private static RunnerSession session(HealthContext ctx) {
+    return ctx.lookup(RunnerSession.class)
+        .orElseThrow(() -> new IllegalStateException("the health context carries no session"));
   }
 
   // --- the checks --------------------------------------------------------------------------------
-
-  private static RunnerHealthCheck.Result docker(RunnerDocker docker) {
-    RunnerDocker.Result answered =
-        docker.run(List.of(docker.binary(), "version", "--format", "{{.Server.Version}}"));
-    Map<String, Object> data = new LinkedHashMap<>();
-    String version = answered.ok() ? answered.stdout().strip() : "";
-    data.put("serverVersion", version.isEmpty() ? null : version);
-    if (!answered.ok()) {
-      return RunnerHealthCheck.Result.failed("docker did not answer: " + answered.detail(), data);
-    }
-    if (version.isEmpty()) {
-      return RunnerHealthCheck.Result.failed("docker answered no server version", data);
-    }
-    return RunnerHealthCheck.Result.ok("docker " + version, data);
-  }
 
   private static RunnerHealthCheck.Result image(
       RunnerDocker docker,
@@ -262,45 +240,5 @@ final class WorkspacesHealthChecks {
     data.put("checkedAt", last.checkedAt());
     return RunnerHealthCheck.Result.ok(
         "claude " + last.claude() + ", kimi " + last.kimi() + " at " + last.checkedAt(), data);
-  }
-
-  private static RunnerHealthCheck.Result session(SessionFacts facts, RunnerSession session) {
-    Map<String, Object> data = new LinkedHashMap<>();
-    data.put("connected", facts.connected());
-    data.put("connectedSince", facts.connectedSince() == null ? null : facts.connectedSince().toString());
-    data.put("slots", facts.slots());
-    data.put("held", new ArrayList<>(session.held()));
-    String detail =
-        facts.connected()
-            ? "connected since " + facts.connectedSince() + ", " + session.held().size() + " of "
-                + facts.slots() + " slot(s) held"
-            : "not connected";
-    return new RunnerHealthCheck.Result(facts.connected(), detail, data);
-  }
-
-  // --- the adapter -------------------------------------------------------------------------------
-
-  /** A check body; {@link RunnerHealthCheck#run} without the name. */
-  private interface Body {
-    RunnerHealthCheck.Result run(RunnerSession session) throws Exception;
-  }
-
-  private static RunnerHealthCheck named(String name, Duration deadline, Body body) {
-    return new RunnerHealthCheck() {
-      @Override
-      public String name() {
-        return name;
-      }
-
-      @Override
-      public Duration deadline() {
-        return deadline;
-      }
-
-      @Override
-      public Result run(RunnerSession session) throws Exception {
-        return body.run(session);
-      }
-    };
   }
 }

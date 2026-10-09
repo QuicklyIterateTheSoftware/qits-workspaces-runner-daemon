@@ -2,6 +2,7 @@ package eu.wohlben.qits.workspacesrunner.protocol;
 
 import eu.wohlben.qits.runner.protocol.DomainCodec;
 import eu.wohlben.qits.runner.protocol.WireMaps;
+import eu.wohlben.qits.runner.protocol.health.HealthWire;
 import eu.wohlben.qits.workspacesrunner.protocol.WorkspacesRunnerProtocol.Field;
 import eu.wohlben.qits.workspacesrunner.protocol.WorkspacesRunnerProtocol.Type;
 import java.util.ArrayList;
@@ -31,7 +32,9 @@ import java.util.Set;
  * written as {@code null} rather than left out, as qits-ci-runner-protocol's {@code WorkloadSpec}
  * is — except a field added to a frame after its release ({@link HealthCheck#requestId()}, {@link
  * HealthChecked#requestId()} and {@link HealthChecked#checks()}), which is left out when absent, so
- * the original frame keeps its exact bytes and an old peer's frame reads as it always did.
+ * the original frame keeps its exact bytes and an old peer's frame reads as it always did. The two
+ * health frames' arms delegate to qits-runner-protocol's {@link HealthWire}, which was lifted from
+ * these arms byte for byte and is now the one spelling of them for every runner kind.
  */
 public final class WorkspacesRunnerCodec implements DomainCodec<WorkspacesRunnerMessage> {
 
@@ -68,12 +71,7 @@ public final class WorkspacesRunnerCodec implements DomainCodec<WorkspacesRunner
         map.put(Field.ROW_ID, m.rowId());
       }
       case ProbeLogin _ -> map.put(Field.TYPE, Type.PROBE_LOGIN);
-      case HealthCheck m -> {
-        map.put(Field.TYPE, Type.HEALTH_CHECK);
-        if (m.requestId() != null) {
-          map.put(Field.REQUEST_ID, m.requestId());
-        }
-      }
+      case HealthCheck m -> map.putAll(HealthWire.encodeCheck(m.requestId()));
       case Inventory m -> {
         map.put(Field.TYPE, Type.INVENTORY);
         List<Object> containers = new ArrayList<>();
@@ -117,26 +115,7 @@ public final class WorkspacesRunnerCodec implements DomainCodec<WorkspacesRunner
         map.put(Field.KIMI, m.kimi().name());
         map.put(Field.CHECKED_AT, m.checkedAt());
       }
-      case HealthChecked m -> {
-        map.put(Field.TYPE, Type.HEALTH_CHECKED);
-        map.put(Field.OK, m.ok());
-        map.put(Field.DETAIL, m.detail());
-        if (m.requestId() != null) {
-          map.put(Field.REQUEST_ID, m.requestId());
-        }
-        if (!m.checks().isEmpty()) {
-          List<Object> checks = new ArrayList<>();
-          for (CheckResult c : m.checks()) {
-            Map<String, Object> check = new LinkedHashMap<>();
-            check.put(Field.NAME, c.name());
-            check.put(Field.OK, c.ok());
-            check.put(Field.DETAIL, c.detail());
-            check.put(Field.DATA, new LinkedHashMap<>(c.data()));
-            checks.add(check);
-          }
-          map.put(Field.CHECKS, checks);
-        }
-      }
+      case HealthChecked m -> map.putAll(HealthWire.encodeChecked(m.report()));
     }
     return map;
   }
@@ -150,7 +129,7 @@ public final class WorkspacesRunnerCodec implements DomainCodec<WorkspacesRunner
       case Type.STOP -> new Stop(rowId(map));
       case Type.DELETE -> new Delete(rowId(map));
       case Type.PROBE_LOGIN -> new ProbeLogin();
-      case Type.HEALTH_CHECK -> new HealthCheck(WireMaps.str(map, Field.REQUEST_ID));
+      case Type.HEALTH_CHECK -> new HealthCheck(HealthWire.decodeCheck(map));
       case Type.INVENTORY ->
           new Inventory(
               held(map),
@@ -166,12 +145,7 @@ public final class WorkspacesRunnerCodec implements DomainCodec<WorkspacesRunner
               LoginPresence.fromWire(WireMaps.str(map, Field.CLAUDE)),
               LoginPresence.fromWire(WireMaps.str(map, Field.KIMI)),
               WireMaps.str(map, Field.CHECKED_AT));
-      case Type.HEALTH_CHECKED ->
-          new HealthChecked(
-              WireMaps.boolVal(map, Field.OK),
-              WireMaps.str(map, Field.DETAIL),
-              WireMaps.str(map, Field.REQUEST_ID),
-              checks(map));
+      case Type.HEALTH_CHECKED -> HealthChecked.of(HealthWire.decodeChecked(map));
       default -> throw new IllegalArgumentException("not a workspaces runner frame: " + type);
     };
   }
@@ -242,26 +216,6 @@ public final class WorkspacesRunnerCodec implements DomainCodec<WorkspacesRunner
               rowId(c), WireMaps.boolVal(c, Field.RUNNING), WireMaps.str(c, Field.SPEC_HASH)));
     }
     return held;
-  }
-
-  // --- the named checks --------------------------------------------------------------------------
-
-  /**
-   * A {@link HealthChecked}'s named checks, empty when absent (a runner older than the field). A
-   * check's {@code data} is taken as the peer's JSON decoder gave it — the object is the check's
-   * own, and nothing here interprets it.
-   */
-  private static List<CheckResult> checks(Map<String, Object> map) {
-    List<CheckResult> checks = new ArrayList<>();
-    for (Map<String, Object> c : objects(map, Field.CHECKS, false)) {
-      checks.add(
-          new CheckResult(
-              WireMaps.str(c, Field.NAME),
-              WireMaps.boolVal(c, Field.OK),
-              WireMaps.str(c, Field.DETAIL),
-              WireMaps.object(c, Field.DATA)));
-    }
-    return checks;
   }
 
   // --- readers -----------------------------------------------------------------------------------

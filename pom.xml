@@ -40,7 +40,7 @@
              release, pinned to a released calver and moved only by the maintenance dependencies
              bump — never by hand. The toolkit brings qits-containers-driver at the version it was
              released against. -->
-        <qits.runner.version>2026.1009.155406</qits.runner.version>
+        <qits.runner.version>2026.1009.161311</qits.runner.version>
 
         <!-- Where the platform publishes it. Overridden by CI (-Dqits.maven.repository.url), derived
              from QITS_DOMAIN; the default below is the public host. -->

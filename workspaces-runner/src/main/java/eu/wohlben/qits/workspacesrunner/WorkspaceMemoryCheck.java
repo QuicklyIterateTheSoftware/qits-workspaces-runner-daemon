@@ -1,8 +1,8 @@
 package eu.wohlben.qits.workspacesrunner;
 
 import eu.wohlben.qits.runner.toolkit.RunnerDocker;
-import eu.wohlben.qits.runner.toolkit.RunnerSession;
-import eu.wohlben.qits.workspacesrunner.health.RunnerHealthCheck;
+import eu.wohlben.qits.runner.toolkit.health.HealthContext;
+import eu.wohlben.qits.runner.toolkit.health.RunnerHealthCheck;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -122,7 +122,7 @@ final class WorkspaceMemoryCheck implements RunnerHealthCheck {
   }
 
   @Override
-  public Result run(RunnerSession ignored) {
+  public Result run(HealthContext ignored) {
     List<WorkspaceContainers.Seen> running;
     try {
       running =

@@ -10,6 +10,7 @@ import eu.wohlben.qits.runner.protocol.RunnerCapabilities;
 import eu.wohlben.qits.runner.protocol.RunnerCodec;
 import eu.wohlben.qits.runner.protocol.RunnerDecodeException;
 import eu.wohlben.qits.runner.protocol.RunnerMessage;
+import eu.wohlben.qits.runner.protocol.health.CheckResult;
 import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.List;

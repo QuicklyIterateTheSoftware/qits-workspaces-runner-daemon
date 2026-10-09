@@ -13,12 +13,15 @@ import eu.wohlben.qits.runner.toolkit.RunnerDomain;
 import eu.wohlben.qits.runner.toolkit.RunnerIdentity;
 import eu.wohlben.qits.runner.toolkit.RunnerSession;
 import eu.wohlben.qits.runner.toolkit.RunnerSettings;
-import eu.wohlben.qits.workspacesrunner.health.HealthChecks;
+import eu.wohlben.qits.runner.toolkit.health.HealthChecks;
+import eu.wohlben.qits.runner.toolkit.health.HealthContext;
+import eu.wohlben.qits.runner.toolkit.health.SessionFacts;
 import eu.wohlben.qits.workspacesrunner.protocol.Delete;
 import eu.wohlben.qits.workspacesrunner.protocol.Deleted;
 import eu.wohlben.qits.workspacesrunner.protocol.Estate;
 import eu.wohlben.qits.workspacesrunner.protocol.Exited;
 import eu.wohlben.qits.workspacesrunner.protocol.HealthCheck;
+import eu.wohlben.qits.workspacesrunner.protocol.HealthChecked;
 import eu.wohlben.qits.workspacesrunner.protocol.HeldContainer;
 import eu.wohlben.qits.workspacesrunner.protocol.Inventory;
 import eu.wohlben.qits.workspacesrunner.protocol.LaunchFailed;
@@ -221,14 +224,14 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
     this.healthChecks = new HealthChecks(docker.deadline().multipliedBy(3));
     WorkspacesHealthChecks.registerDefaults(
         healthChecks,
+        identity,
+        settings.runnerId(),
         docker,
         images,
         healthCheck,
         timing.healthWindow(),
-        new NodeInventoryCheck(identity, settings.runnerId(), docker),
         this::workspaceImage,
         () -> lastLogin,
-        () -> new WorkspacesHealthChecks.SessionFacts(live, connectedSince, ackSlots),
         new WorkspaceMemoryCheck(docker, containers, names, () -> ackSlots, clock));
     this.timing = timing;
     this.clock = clock;
@@ -641,7 +644,11 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
     if (decommissioning) {
       return;
     }
-    session.send(WorkspacesHealthChecks.answer(check.requestId(), healthChecks.run(session)));
+    HealthContext ctx =
+        HealthContext.of(
+            session, docker, () -> new SessionFacts(live, connectedSince, ackSlots));
+    session.send(
+        HealthChecked.of(HealthChecks.answer(check.requestId(), healthChecks.run(ctx))));
   }
 
   /** The registry the health check runs; a suite adds a check of its own through it. */

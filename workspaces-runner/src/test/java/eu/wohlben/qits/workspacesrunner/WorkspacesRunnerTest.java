@@ -502,6 +502,46 @@ class WorkspacesRunnerTest {
     assertTrue(host.all(Exited.class).isEmpty(), () -> "no exit: " + host.all(Exited.class));
   }
 
+  /**
+   * qits-1233: an {@code estate} the server composed before it claimed row 5 arrives, and the take
+   * of row 5 lands while that estate's sweep is still listing the node. The inspect of the owned
+   * row 1 is held two seconds, so the sweep's listing is taken before the take's {@code docker run}
+   * and its removal would come after it — the window in which the reconcile once removed a
+   * workspace a second after launching it. The take must win: its container stays, untouched.
+   */
+  @Test
+  void anEstateSweepUnderWayNeverRemovesAWorkspaceWhoseTakeArrivesDuringIt() throws Exception {
+    timing =
+        new WorkspacesRunnerDomain.Timing(
+            Duration.ofMillis(600),
+            Duration.ofMillis(50),
+            Duration.ofHours(1), // no exit watch: the sweep is the only listing in the window
+            Duration.ofSeconds(60),
+            Duration.ofSeconds(60));
+    probesAnswer();
+    seen(1, "running", 0, "h1");
+    ackWith(2, 0);
+    start("t");
+    host.await(Inventory.class);
+    awaitTrue(() -> runner.session().held().equals(List.of("1")));
+
+    docker.hang("inspect+" + ws(1), 2);
+    long inspectsBefore = docker.calls("inspect").stream().filter(c -> c.contains(ws(1))).count();
+    host.send(new Estate(List.of(1L), WORKSPACE_IMAGE));
+    awaitTrue(
+        () ->
+            docker.calls("inspect").stream().filter(c -> c.contains(ws(1))).count()
+                > inspectsBefore);
+    host.send(new Take(5, fullSpec()));
+
+    assertEquals(new Launched(5, ws(5)), host.await(Launched.class));
+    host.await(LoginState.class); // the estate's last step: its sweep is over
+    assertTrue(docker.containers().containsKey(ws(5)), docker.calls()::toString);
+    assertFalse(touched("rm", ws(5)) || touched("stop", ws(5)), docker.calls()::toString);
+    assertTrue(docker.containers().containsKey(ws(1)), docker.calls()::toString);
+    assertTrue(host.all(Exited.class).isEmpty(), () -> "no exit: " + host.all(Exited.class));
+  }
+
   @Test
   void everyEstatePullsTheWorkspaceImageOnlyWhenItIsNotHere() throws Exception {
     probesAnswer();

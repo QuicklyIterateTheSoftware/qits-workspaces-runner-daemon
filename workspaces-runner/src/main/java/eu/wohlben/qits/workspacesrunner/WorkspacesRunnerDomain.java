@@ -55,6 +55,7 @@ import java.util.concurrent.ScheduledThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import org.jboss.logging.Logger;
 
 /**
@@ -149,6 +150,19 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
 
   /** One lock per row: a take, a stop and a delete of one row never interleave. */
   private final Map<Long, ReentrantLock> rowLocks = new ConcurrentHashMap<>();
+
+  /**
+   * A take's launch against an {@code estate}'s sweep (qits-1233). Frames are dispatched
+   * concurrently, and the sweep decides its keep set, lists the node and removes what is outside it
+   * in separate docker calls; a take whose {@code docker run} landed in between — its row not yet
+   * in the keep set, or its container not yet in the listing of the kept — was removed a second
+   * after it launched. Takes share the read side, so they never wait on each other; the sweep holds
+   * the write side from its keep set to its last removal, so a take is either wholly before it (and
+   * in {@link #unconfirmed} when the keep set is read) or wholly after it. The exit watch shares
+   * the read side too, so it never reads a container the sweep is removing as one that exited by
+   * itself. Always taken before a row lock, never under one.
+   */
+  private final ReentrantReadWriteLock sweep = new ReentrantReadWriteLock(true);
 
   /** Whether each row's container was running when the runner last looked. */
   private final Map<Long, Boolean> lastRunning = new ConcurrentHashMap<>();
@@ -432,14 +446,21 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
     LOG.infof(
         "workspaces-runner's estate: %d owned workspace(s), workspace image %s",
         owned.size(), e.workspaceImage());
-    Set<Long> keep = new HashSet<>(owned);
-    keep.addAll(unconfirmed);
-    Set<String> keepIds = new LinkedHashSet<>();
-    keep.forEach(row -> keepIds.add(Long.toString(row)));
-    if (stopOutside(keep, session)) {
-      session.own().reconcile(keepIds);
+    // The keep set is read under the sweep's lock: every take that began is in unconfirmed by then,
+    // and none begins until the last removal is done.
+    sweep.writeLock().lock();
+    try {
+      Set<Long> keep = new HashSet<>(owned);
+      keep.addAll(unconfirmed);
+      Set<String> keepIds = new LinkedHashSet<>();
+      keep.forEach(row -> keepIds.add(Long.toString(row)));
+      if (stopOutside(keep, session)) {
+        session.own().reconcile(keepIds);
+      }
+      unconfirmed.removeAll(owned);
+    } finally {
+      sweep.writeLock().unlock();
     }
-    unconfirmed.removeAll(owned);
     // What the reconcile removed no longer holds a slot; the look releases it and says so.
     look(session, true);
     String image = e.workspaceImage();
@@ -481,6 +502,8 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
     long rowId = take.rowId();
     String workId = Long.toString(rowId);
     inFlight.incrementAndGet();
+    // Before the row lock: a sweep holding the write side may be waiting for that row's lock.
+    sweep.readLock().lock();
     ReentrantLock lock = lockOf(rowId);
     lock.lock();
     try {
@@ -500,6 +523,7 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
       }
     } finally {
       lock.unlock();
+      sweep.readLock().unlock();
       inFlight.decrementAndGet();
     }
     sendInventory(session, true);
@@ -597,7 +621,8 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
    * #onDelete}). The set is the reconcile's own: own-labelled containers by their work label,
    * against the same keep set; a container without a row is no workspace and has no session to
    * archive. The lock makes this wait for a {@code delete} of the row under way, as a {@code stop}
-   * would; a row taken meanwhile is left alone. Stopped, the row is marked not running, so the exit
+   * would. A take cannot begin meanwhile ({@link #sweep}); the {@link #unconfirmed} check below is
+   * the belt under that. Stopped, the row is marked not running, so the exit
    * watch does not read our own stop as an exit.
    *
    * @return false when docker did not answer the listing — the reconcile then waits for the next
@@ -735,7 +760,16 @@ public final class WorkspacesRunnerDomain implements RunnerDomain<WorkspacesRunn
     if (s == null || !live || decommissioning) {
       return;
     }
-    look(s, false);
+    // A sweep under way is removing containers it stopped or never saw run; read now, one of them
+    // could look exited by itself. The next look finds it gone, which is said silently.
+    if (!sweep.readLock().tryLock()) {
+      return;
+    }
+    try {
+      look(s, false);
+    } finally {
+      sweep.readLock().unlock();
+    }
   }
 
   /**

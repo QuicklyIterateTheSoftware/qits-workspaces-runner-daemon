@@ -87,6 +87,19 @@ A `take`'s `WorkspaceSpec` arrives over a socket and becomes an argv to a root-e
 - **`estate.owned` is the desired state and an absent list is malformed**, never "owns nothing":
   read as empty, it would remove every workspace on the node.
 
+## The toolkit's calls are pacted here (qits-1163)
+
+The token mint at qits-idp, the log export to qits-observability and the register door at
+qits-workspaces-service are REST calls qits-runner-toolkit makes **on this daemon's behalf**, so
+they are this daemon's consumer pacts, not the library's. `ToolkitPactTest` declares them through
+`eu.wohlben.qits:qits-runner-toolkit-contracts` (test scope, pinned with `${qits.runner.version}` —
+the kit refuses a toolkit of another version) and writes
+`pacts/qits-workspaces-runner-daemon_qits-runner-javalib_<provider>.json`, every interaction
+carrying `qits-via`. Its guard fails if the declared features drift from what the main classes
+actually call. A provider whose states are not in the pinned golden masters is skipped, naming the
+state it needs; once the bump brings them, rerun with `-Dgolden.update=true`, commit the new file
+and declare the provider under `contracts.pacts` in `.config/qits/release.yml`.
+
 ## Formatting
 
 `google-java-format`, 100 columns, two-space indent. Javadoc explains *why* — the tradeoff, the

@@ -54,6 +54,19 @@
             <artifactId>junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <!-- qits-1163: the toolkit's token, log-export and register calls, pacted as this
+                 daemon's own consumer pacts (ToolkitPactTest). Brings qits-pact-consumer and
+                 qits-idp's and qits-observability's golden masters. -->
+            <groupId>eu.wohlben.qits</groupId>
+            <artifactId>qits-runner-toolkit-contracts</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>eu.wohlben.qits</groupId>
+            <artifactId>qits-workspaces-golden-masters</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

@@ -20,6 +20,18 @@ artifacts:
   # where `makeBom` writes it — and checks on the last step that it reached the store.
   - { type: maven, name: "eu.wohlben.qits:qits-workspaces-runner-protocol", path: workspaces-runner-protocol, sbom: workspaces-runner-protocol/target/sbom.json }
 
+# THE CONSUMER PACTS (qits-1163): the REST calls qits-runner-toolkit makes on this daemon's behalf,
+# pacted as this daemon's own by ToolkitPactTest through eu.wohlben.qits:qits-runner-toolkit-contracts
+# and kept flat in `pacts/` as qits-workspaces-runner-daemon_qits-runner-javalib_<provider>.json.
+# Only providers with a committed file are declared: qits-observability (log export) and
+# qits-workspaces (register) join once their recordings reach the golden masters pinned here. The
+# platform packs each file as eu.wohlben.qits:qits-workspaces-runner-daemon-pacts-<provider> and
+# publishes it only when it changed. The runner serves no HTTP, so it records no golden masters.
+contracts:
+  application: qits-workspaces-runner
+  pacts:
+    qits-idp-service: { packages: [maven] }
+
 # AN IMAGE AND A JAR FROM ONE TREE, WHICH NO ARCHETYPE PUBLISHES — qits-ci-runner-daemon's shape, and
 # qits-workspace-daemon's and qits-projects-daemon's before it: `java-service` names the family and
 # both slots are declared here, so qits-ci composes no archetype slot of its own.

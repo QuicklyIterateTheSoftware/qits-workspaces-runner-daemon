@@ -31,6 +31,8 @@ contracts:
   application: qits-workspaces-runner
   pacts:
     qits-idp-service: { packages: [maven] }
+    qits-observability-service: { packages: [maven] }
+    qits-workspaces-service: { packages: [maven] }
 
 # AN IMAGE AND A JAR FROM ONE TREE, WHICH NO ARCHETYPE PUBLISHES — qits-ci-runner-daemon's shape, and
 # qits-workspace-daemon's and qits-projects-daemon's before it: `java-service` names the family and

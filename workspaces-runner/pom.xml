@@ -67,6 +67,13 @@
             <artifactId>qits-workspaces-golden-masters</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <!-- qits-1163: pins a newer qits-observability-golden-masters than the kit brings
+                 transitively, so "an empty telemetry buffer" resolves. -->
+            <groupId>eu.wohlben.qits</groupId>
+            <artifactId>qits-observability-golden-masters</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

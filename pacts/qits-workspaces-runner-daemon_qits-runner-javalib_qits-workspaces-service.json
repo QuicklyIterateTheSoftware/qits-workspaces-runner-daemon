@@ -1,0 +1,241 @@
+{
+  "consumer": {
+    "name": "qits-workspaces-runner-daemon"
+  },
+  "interactions": [
+    {
+      "comments": {
+        "references": {
+          "qits-call": {
+            "app": "qits-workspaces-service",
+            "operationId": "registerRunner"
+          },
+          "qits-trigger": {
+            "app": "qits-workspaces-runner-daemon",
+            "event": "the runner's start",
+            "kind": "event"
+          },
+          "qits-via": {
+            "artifact": "eu.wohlben.qits:qits-runner-toolkit",
+            "repository": "qits-runner-javalib",
+            "version": "2026.1019.63105"
+          }
+        }
+      },
+      "description": "the runner's start: registerRunner",
+      "key": "94a1799",
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "a registered runner",
+          "params": {
+            "authorization": "Bearer qits_tok_contract-registration",
+            "runnerId": "00000000-0000-4000-8000-000000000020",
+            "runnerName": "localhost"
+          }
+        }
+      ],
+      "request": {
+        "body": {
+          "content": {
+            "capabilities": {
+              "arch": "amd64",
+              "docker": true,
+              "labels": {
+                "site": "home"
+              },
+              "os": "linux"
+            }
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "generators": {
+          "header": {
+            "Authorization": {
+              "dataType": "RAW",
+              "expression": "${authorization}",
+              "type": "ProviderState"
+            }
+          },
+          "path": {
+            "dataType": "RAW",
+            "expression": "/workspaces/api/runners/${runnerId}/register",
+            "type": "ProviderState"
+          }
+        },
+        "headers": {
+          "Authorization": [
+            "Bearer qits_tok_contract-registration"
+          ],
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "method": "POST",
+        "path": "/workspaces/api/runners/00000000-0000-4000-8000-000000000020/register"
+      },
+      "response": {
+        "status": 409
+      },
+      "type": "Synchronous/HTTP"
+    },
+    {
+      "comments": {
+        "references": {
+          "qits-call": {
+            "app": "qits-workspaces-service",
+            "operationId": "registerRunner"
+          },
+          "qits-trigger": {
+            "app": "qits-workspaces-runner-daemon",
+            "event": "the runner's start",
+            "kind": "event"
+          },
+          "qits-via": {
+            "artifact": "eu.wohlben.qits:qits-runner-toolkit",
+            "repository": "qits-runner-javalib",
+            "version": "2026.1019.63105"
+          }
+        }
+      },
+      "description": "the runner's start: registerRunner",
+      "key": "493891e6",
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "an unregistered runner",
+          "params": {
+            "authorization": "Bearer qits_tok_contract-registration",
+            "runnerId": "00000000-0000-4000-8000-000000000020",
+            "runnerName": "localhost"
+          }
+        }
+      ],
+      "request": {
+        "body": {
+          "content": {
+            "capabilities": {
+              "arch": "amd64",
+              "docker": true,
+              "labels": {
+                "site": "home"
+              },
+              "os": "linux"
+            }
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "generators": {
+          "header": {
+            "Authorization": {
+              "dataType": "RAW",
+              "expression": "${authorization}",
+              "type": "ProviderState"
+            }
+          },
+          "path": {
+            "dataType": "RAW",
+            "expression": "/workspaces/api/runners/${runnerId}/register",
+            "type": "ProviderState"
+          }
+        },
+        "headers": {
+          "Authorization": [
+            "Bearer qits_tok_contract-registration"
+          ],
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "method": "POST",
+        "path": "/workspaces/api/runners/00000000-0000-4000-8000-000000000020/register"
+      },
+      "response": {
+        "body": {
+          "content": {
+            "audience": "qits-platform",
+            "clientId": "contract-runner-client",
+            "secret": "contract-runner-secret",
+            "socketUrl": "wss://workspaces.qits.runners.example.test/workspaces/runners/socket",
+            "tokenUrl": "https://idp.qits.runners.example.test/idp/token"
+          },
+          "contentType": "application/json",
+          "encoded": false
+        },
+        "headers": {
+          "Content-Type": [
+            "application/json"
+          ]
+        },
+        "matchingRules": {
+          "body": {
+            "$.audience": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.clientId": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.secret": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.socketUrl": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            },
+            "$.tokenUrl": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "type"
+                }
+              ]
+            }
+          },
+          "header": {
+            "Content-Type": {
+              "combine": "AND",
+              "matchers": [
+                {
+                  "match": "regex",
+                  "regex": "application/json.*"
+                }
+              ]
+            }
+          }
+        },
+        "status": 200
+      },
+      "type": "Synchronous/HTTP"
+    }
+  ],
+  "metadata": {
+    "pactSpecification": {
+      "version": "4.0"
+    },
+    "plugins": []
+  },
+  "provider": {
+    "name": "qits-workspaces-service"
+  }
+}

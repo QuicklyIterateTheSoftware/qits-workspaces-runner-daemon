@@ -46,7 +46,14 @@
              toolkit's register call against qits-workspaces-service's golden masters, which are this
              daemon's to pin (qits-idp's and qits-observability's come with the kit). Test scope;
              moved by the maintenance bump like any other released pin. -->
-        <qits.workspaces-golden-masters.version>2026.1016.90656</qits.workspaces-golden-masters.version>
+        <qits.workspaces-golden-masters.version>2026.1019.70413</qits.workspaces-golden-masters.version>
+
+        <!-- qits-observability's LOG_EXPORT row needs "an empty telemetry buffer" recorded, which
+             lands only at this version (qits-1163) — newer than the one qits-runner-toolkit-contracts
+             brings transitively. Pinned here, overriding the kit's, and added as an explicit test
+             dependency in workspaces-runner so this version wins resolution; moved by the
+             maintenance bump like any other released pin. -->
+        <qits.observability-golden-masters.version>2026.1018.155850</qits.observability-golden-masters.version>
 
         <!-- Where the platform publishes it. Overridden by CI (-Dqits.maven.repository.url), derived
              from QITS_DOMAIN; the default below is the public host. -->
@@ -110,6 +117,14 @@
                 <groupId>eu.wohlben.qits</groupId>
                 <artifactId>qits-workspaces-golden-masters</artifactId>
                 <version>${qits.workspaces-golden-masters.version}</version>
+            </dependency>
+            <!-- Overrides the older version qits-runner-toolkit-contracts brings transitively
+                 (qits-1163); see the property above. -->
+            <dependency>
+                <groupId>eu.wohlben.qits</groupId>
+                <artifactId>qits-observability-golden-masters</artifactId>
+                <version>${qits.observability-golden-masters.version}</version>
+                <scope>test</scope>
             </dependency>
         </dependencies>
     </dependencyManagement>

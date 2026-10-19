@@ -46,7 +46,7 @@
              toolkit's register call against qits-workspaces-service's golden masters, which are this
              daemon's to pin (qits-idp's and qits-observability's come with the kit). Test scope;
              moved by the maintenance bump like any other released pin. -->
-        <qits.workspaces-golden-masters.version>2026.1016.90656</qits.workspaces-golden-masters.version>
+        <qits.workspaces-golden-masters.version>2026.1019.70413</qits.workspaces-golden-masters.version>
 
         <!-- Where the platform publishes it. Overridden by CI (-Dqits.maven.repository.url), derived
              from QITS_DOMAIN; the default below is the public host. -->

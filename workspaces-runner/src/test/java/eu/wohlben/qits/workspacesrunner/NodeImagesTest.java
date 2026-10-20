@@ -174,6 +174,31 @@ class NodeImagesTest {
             IMAGE, () -> Optional.of("Error: pull access denied"), Duration.ofSeconds(10)));
   }
 
+  // A caller that joins right after a pull finishes must not read its stale answer (qits-1447):
+  // join() must treat a completed-but-not-yet-removed future as absent and pull again.
+  @Test
+  void aRetryRightAfterAFinishedPullAlwaysPullsAgain() {
+    AtomicInteger pulls = new AtomicInteger();
+    Supplier<Optional<String>> failingPull =
+        () -> {
+          pulls.incrementAndGet();
+          return Optional.of("Error: pull access denied");
+        };
+    Supplier<Optional<String>> succeedingPull =
+        () -> {
+          pulls.incrementAndGet();
+          return Optional.empty();
+        };
+    int iterations = 1000;
+    for (int i = 0; i < iterations; i++) {
+      images.shared(IMAGE, failingPull);
+      Optional<String> second = images.shared(IMAGE, succeedingPull);
+      assertEquals(Optional.empty(), second, "iteration " + i + ": the retry must pull again");
+      assertTrue(!images.pulling(IMAGE), "iteration " + i + ": no pull left under way");
+    }
+    assertEquals(2 * iterations, pulls.get(), "every iteration pulls twice");
+  }
+
   private static void awaitWaiting(Thread t) throws InterruptedException {
     long until = System.nanoTime() + TimeUnit.SECONDS.toNanos(10);
     while (t.getState() != Thread.State.WAITING && System.nanoTime() < until) {

@@ -62,7 +62,11 @@ final class NodeImages {
 
   private final RunnerDocker docker;
 
-  /** The pulls under way, by image reference; each is removed once it has completed. */
+  /**
+   * The pulls under way, by image reference; each is removed once it has completed. A completed
+   * entry still in the map counts as absent too — its pull thread has not removed it yet, and the
+   * next caller to arrive replaces it rather than reading its stale answer (qits-1447).
+   */
   private final ConcurrentHashMap<String, CompletableFuture<Optional<String>>> inFlight =
       new ConcurrentHashMap<>();
 
@@ -101,7 +105,10 @@ final class NodeImages {
 
   /** Whether a pull of {@code image} is under way on this node right now. */
   boolean pulling(String image) {
-    return inFlight.containsKey(image);
+    // A completed entry still in the map is not a pull under way (qits-1447): its thread is on
+    // its way to removing it, and the next caller treats it as absent too.
+    CompletableFuture<Optional<String>> running = inFlight.get(image);
+    return running != null && !running.isDone();
   }
 
   /**
@@ -127,10 +134,12 @@ final class NodeImages {
   private CompletableFuture<Optional<String>> join(
       String image, Supplier<Optional<String>> pull) {
     CompletableFuture<Optional<String>> mine = new CompletableFuture<>();
-    CompletableFuture<Optional<String>> running = inFlight.putIfAbsent(image, mine);
-    if (running == null) {
+    // A completed future counts as absent (qits-1447): start() completes before it removes, and a
+    // caller arriving in between would otherwise read the ended pull's stale answer.
+    CompletableFuture<Optional<String>> running =
+        inFlight.compute(image, (k, v) -> v == null || v.isDone() ? mine : v);
+    if (running == mine) {
       // Started only once it is in the map, so its removal can never precede its insertion.
-      running = mine;
       start(image, mine, pull);
     }
     return running;
@@ -166,6 +175,8 @@ final class NodeImages {
             mine.complete(Optional.of("the pull of " + image + " failed: " + failed));
           } finally {
             // Completed before removed: a waiter never holds a future nobody will complete.
+            // join() replaces a completed entry still in the map (qits-1447), and this remove is
+            // value-conditional, so a late one never evicts the newer pull that replaced it.
             mine.complete(Optional.of("the pull of " + image + " ended without an answer"));
             inFlight.remove(image, mine);
           }

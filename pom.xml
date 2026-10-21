@@ -19,7 +19,7 @@
          every <version> here to the tag it cuts. -->
     <groupId>eu.wohlben</groupId>
     <artifactId>qits</artifactId>
-    <version>2026.1021.25024</version>
+    <version>2026.1021.45313</version>
     <packaging>pom</packaging>
 
     <modules>

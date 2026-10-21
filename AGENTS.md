@@ -100,6 +100,58 @@ actually call. A provider whose states are not in the pinned golden masters is s
 state it needs; once the bump brings them, rerun with `-Dgolden.update=true`, commit the new file
 and declare the provider under `contracts.pacts` in `.config/qits/release.yml`.
 
+## The frames it sends are golden masters (qits-950)
+
+The runner serves no HTTP, but it is a provider: of every frame it sends qits-workspaces-service
+on the control socket. So it records them the way the estate's HTTP providers record their
+answers (qits-546), and the service builds its message pact from the published tree,
+`eu.wohlben.qits:qits-workspaces-runner-golden-masters` (`contracts.golden-masters` in
+`.config/qits/release.yml`, application `qits-workspaces-runner`, maven only).
+
+- **`RunnerProviderStates`** names the states ("a runner whose node holds a running workspace",
+  "a runner asked to take a workspace whose launch fails", …) and lists `FRAMES`: per frame its
+  state, its wire type and its trigger. `produce(frame, dir)` builds a fresh node (`FakeDocker`), a
+  fresh host (`FakeRunnerHost`) and the real `WorkspacesRunnerDomain` under the toolkit's real
+  `RunnerRuntime`, pulls the trigger (a host frame, a reconnect, the exit watch's clock) and answers
+  the frame **as written on the socket**: `WireTap` is a WebSocket hop the register door points the
+  runner at, keeping the runner's text frames verbatim. Never build or re-encode a frame here — the
+  host's frames are the only scripted ones. The class is shared on purpose: the message-pact
+  verifier that comes next drives the same states.
+- **`RunnerGoldenMasterRecordingTest`** freezes each frame (`GoldenFrames`: UUIDs, instants, the
+  runner's own `WorkspacesRunnerBinary.VERSION` as `2026.101.0`, and the `/proc/meminfo` numbers a
+  health check reports as `0`) and writes `golden-masters/<state-slug>/frame-<type>.json` plus
+  `golden-masters/index.json`. It **compares by default**; `-Dgolden.update=true` (or
+  `QITS_GOLDEN_UPDATE=true`) rewrites and deletes stale files, through qits-pact-consumer's
+  `GoldenFiles`.
+- **`RunnerFramesGuardTest`** reads what the runner sends off the bytecode — every permitted
+  subclass of `LifecycleMessage` and `WorkspacesRunnerMessage` whose constructor or static factory
+  this module's main classes or qits-runner-toolkit's (its `testing/` fakes aside) call — and fails,
+  naming the frame and the class that builds it, when one has no recording. It also fails on a
+  recording of a frame nothing builds any more.
+
+The index is the HTTP providers' `formatVersion: 1` shape, so the platform's readers (the CLI's
+`GoldenMasterIndexParser`, which keys on `operationId`) take it as is. A frame's operation entry
+replaces the HTTP fields (`method`, `path`, `headers`, `body`, `status`) with four of its own:
+
+    {
+      "operationId": "frame:stopped",          // frame:<type>, the key a pact row binds to
+      "kind": "message",                       // not an HTTP answer
+      "frame": "stopped",                      // the wire `type`
+      "direction": "runner-to-service",
+      "trigger": { "kind": "frame", "frame": "stop" },   // or event: connect|reconnect,
+                                                         // schedule: heartbeat|exit-watch
+      "file": "<state-slug>/frame-stopped.json",
+      "frozen": { "ids": [], "instants": [], "strings": [], "listFilteredTo": null }
+    }
+
+`frozen.numbers` appears only where host facts were zeroed (`healthChecked`). A state's `params`
+are strings, as everywhere: `runnerId`, and `rowId`, `requestId` or `workspaceImage` where the
+state is about one.
+
+**A new frame the runner sends** (a new record, or a lifecycle frame the toolkit starts building)
+fails `RunnerFramesGuardTest` until it has a state: add it to `RunnerProviderStates.FRAMES`, rerun
+the recorder with `-Dgolden.update=true`, review and commit the tree.
+
 ## Formatting
 
 `google-java-format`, 100 columns, two-space indent. Javadoc explains *why* — the tradeoff, the

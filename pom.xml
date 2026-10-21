@@ -40,7 +40,7 @@
              release, pinned to a released calver and moved only by the maintenance dependencies
              bump — never by hand. The toolkit brings qits-containers-driver at the version it was
              released against. -->
-        <qits.runner.version>2026.1021.111054</qits.runner.version>
+        <qits.runner.version>2026.1021.125159</qits.runner.version>
 
         <!-- The register host's recordings (qits-1163): qits-runner-toolkit-contracts pacts the
              toolkit's register call against qits-workspaces-service's golden masters, which are this

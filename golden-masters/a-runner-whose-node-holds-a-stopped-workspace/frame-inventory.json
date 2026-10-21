@@ -1,0 +1,14 @@
+{
+  "type": "inventory",
+  "containers": [
+    {
+      "rowId": 5,
+      "running": false,
+      "specHash": "h5"
+    }
+  ],
+  "volumes": [
+    5
+  ],
+  "dotClaudeVolume": "qits-workspaces-runner-dot-claude-r1"
+}

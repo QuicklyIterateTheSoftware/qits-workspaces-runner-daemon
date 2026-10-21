@@ -1,0 +1,114 @@
+{
+  "type": "healthChecked",
+  "ok": true,
+  "detail": "all 7 checks passed",
+  "requestId": "00000000-0000-4000-8000-000000000001",
+  "checks": [
+    {
+      "name": "docker",
+      "ok": true,
+      "detail": "docker 27.3.1",
+      "data": {
+        "serverVersion": "27.3.1"
+      }
+    },
+    {
+      "name": "workspaceImage",
+      "ok": true,
+      "detail": "registry.example:5000/qits/workspace:2026.1004.1 is here",
+      "data": {
+        "image": "registry.example:5000/qits/workspace:2026.1004.1",
+        "pulled": false,
+        "pulling": false,
+        "id": "sha256:ws",
+        "created": "2026-01-01T00:00:00Z"
+      }
+    },
+    {
+      "name": "selfTest",
+      "ok": true,
+      "detail": "registry.example:5000/qits/workspace:2026.1004.1 ran on this node",
+      "data": {
+        "image": "registry.example:5000/qits/workspace:2026.1004.1",
+        "pin": "registry.example:5000/qits/workspace:2026.1004.1"
+      }
+    },
+    {
+      "name": "nodeInventory",
+      "ok": true,
+      "detail": "1 container(s), 3 volume(s), runner container qits-workspaces-runner-r1-2026.101.0",
+      "data": {
+        "containers": [
+          {
+            "name": "qits-workspaces-runner-ws-1-r1",
+            "id": "c1full",
+            "rowId": 1,
+            "state": "exited",
+            "startedAt": "2026-01-01T00:00:00Z",
+            "finishedAt": "2026-01-01T00:00:00Z",
+            "exitCode": 137,
+            "image": "registry.example:5000/qits/workspace:2026.1004.1"
+          }
+        ],
+        "volumes": [
+          {
+            "name": "qits-workspaces-runner-dot-claude-r1",
+            "rowId": null,
+            "createdAt": "2026-01-01T00:00:00Z"
+          },
+          {
+            "name": "qits-workspaces-runner-m2-r1",
+            "rowId": null,
+            "createdAt": "2026-01-01T00:00:00Z"
+          },
+          {
+            "name": "qits-workspaces-runner-ws-1-r1",
+            "rowId": 1,
+            "createdAt": "2026-01-01T00:00:00Z"
+          }
+        ],
+        "runnerContainer": {
+          "name": "qits-workspaces-runner-r1-2026.101.0",
+          "id": "selffull",
+          "version": "2026.101.0",
+          "startedAt": "2026-01-01T00:00:00Z"
+        }
+      }
+    },
+    {
+      "name": "login",
+      "ok": true,
+      "detail": "claude PRESENT, kimi PRESENT at 2026-10-05T04:38:19Z",
+      "data": {
+        "claude": "PRESENT",
+        "kimi": "PRESENT",
+        "checkedAt": "2026-01-01T00:00:00Z"
+      }
+    },
+    {
+      "name": "session",
+      "ok": true,
+      "detail": "connected since 2026-10-05T04:38:19Z, 0 of 1 slot(s) held",
+      "data": {
+        "connected": true,
+        "connectedSince": "2026-01-01T00:00:00Z",
+        "slots": 1,
+        "held": []
+      }
+    },
+    {
+      "name": "workspaceMemory",
+      "ok": true,
+      "detail": "0 workspace(s), no oom kills",
+      "data": {
+        "workspaces": [],
+        "node": {
+          "memTotal": 0,
+          "swapTotal": 0,
+          "slots": 1,
+          "overcommitted": null
+        }
+      }
+    }
+  ]
+}

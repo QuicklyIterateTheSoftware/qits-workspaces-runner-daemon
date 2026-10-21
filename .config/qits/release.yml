@@ -26,9 +26,17 @@ artifacts:
 # Only providers with a committed file are declared: qits-observability (log export) and
 # qits-workspaces (register) join once their recordings reach the golden masters pinned here. The
 # platform packs each file as eu.wohlben.qits:qits-workspaces-runner-daemon-pacts-<provider> and
-# publishes it only when it changed. The runner serves no HTTP, so it records no golden masters.
+# publishes it only when it changed.
+#
+# THE PROVIDER GOLDEN MASTERS (qits-950): the runner serves no HTTP, but it is a provider all the
+# same — of the frames it sends qits-workspaces-service on the control socket.
+# RunnerGoldenMasterRecordingTest records each, per provider state, into `golden-masters/` (one
+# `frame:<type>` entry per frame in its index.json), and the platform packs the tree as
+# eu.wohlben.qits:qits-workspaces-runner-golden-masters, published only when it changed. Maven
+# only: the one consumer, qits-workspaces-service, is Java.
 contracts:
   application: qits-workspaces-runner
+  golden-masters: { from: golden-masters/, packages: [maven] }
   pacts:
     qits-idp-service: { packages: [maven] }
     qits-observability-service: { packages: [maven] }

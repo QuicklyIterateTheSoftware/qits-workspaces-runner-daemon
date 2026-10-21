@@ -1,0 +1,84 @@
+{
+  "type": "healthChecked",
+  "ok": false,
+  "detail": "workspaceImage: the runner has had no estate yet, so it does not know the workspace image; selfTest: the runner has had no estate yet, so it does not know the workspace image",
+  "requestId": "00000000-0000-4000-8000-000000000001",
+  "checks": [
+    {
+      "name": "docker",
+      "ok": true,
+      "detail": "docker 27.3.1",
+      "data": {
+        "serverVersion": "27.3.1"
+      }
+    },
+    {
+      "name": "workspaceImage",
+      "ok": false,
+      "detail": "the runner has had no estate yet, so it does not know the workspace image",
+      "data": {
+        "image": null
+      }
+    },
+    {
+      "name": "selfTest",
+      "ok": false,
+      "detail": "the runner has had no estate yet, so it does not know the workspace image",
+      "data": {
+        "image": null,
+        "pin": null
+      }
+    },
+    {
+      "name": "nodeInventory",
+      "ok": true,
+      "detail": "0 container(s), 1 volume(s), no runner container",
+      "data": {
+        "containers": [],
+        "volumes": [
+          {
+            "name": "qits-workspaces-runner-dot-claude-r1",
+            "rowId": null,
+            "createdAt": "2026-01-01T00:00:00Z"
+          }
+        ],
+        "runnerContainer": null
+      }
+    },
+    {
+      "name": "login",
+      "ok": true,
+      "detail": "the login has not been probed yet",
+      "data": {
+        "claude": null,
+        "kimi": null,
+        "checkedAt": null
+      }
+    },
+    {
+      "name": "session",
+      "ok": true,
+      "detail": "connected since 2026-10-05T04:38:19Z, 0 of 1 slot(s) held",
+      "data": {
+        "connected": true,
+        "connectedSince": "2026-01-01T00:00:00Z",
+        "slots": 1,
+        "held": []
+      }
+    },
+    {
+      "name": "workspaceMemory",
+      "ok": true,
+      "detail": "0 workspace(s), no oom kills",
+      "data": {
+        "workspaces": [],
+        "node": {
+          "memTotal": 0,
+          "swapTotal": 0,
+          "slots": 1,
+          "overcommitted": null
+        }
+      }
+    }
+  ]
+}

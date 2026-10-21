@@ -1,0 +1,12 @@
+{
+  "type": "hello",
+  "runnerVersion": "2026.101.0",
+  "capabilityVersion": 1,
+  "slots": 2,
+  "capabilities": {
+    "docker": true,
+    "arch": "amd64",
+    "os": "linux",
+    "labels": {}
+  }
+}

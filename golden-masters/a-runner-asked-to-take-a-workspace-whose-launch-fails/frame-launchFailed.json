@@ -1,0 +1,5 @@
+{
+  "type": "launchFailed",
+  "rowId": 5,
+  "detail": "docker could not run qits-workspaces-runner-ws-5-r1: docker: Error response from daemon: no space left on device."
+}

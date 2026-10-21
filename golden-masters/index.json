@@ -1,0 +1,454 @@
+{
+  "formatVersion": 1,
+  "provider": "qits-workspaces-runner",
+  "states": [
+    {
+      "name": "a runner asked to take a new workspace",
+      "slug": "a-runner-asked-to-take-a-new-workspace",
+      "params": {
+        "runnerId": "r1",
+        "rowId": "5",
+        "workspaceImage": "registry.example:5000/qits/workspace:2026.1004.1"
+      },
+      "dependsOn": [],
+      "operations": [
+        {
+          "operationId": "frame:launched",
+          "kind": "message",
+          "frame": "launched",
+          "direction": "runner-to-service",
+          "trigger": {
+            "kind": "frame",
+            "frame": "take"
+          },
+          "file": "a-runner-asked-to-take-a-new-workspace/frame-launched.json",
+          "frozen": {
+            "ids": [],
+            "instants": [],
+            "strings": [],
+            "listFilteredTo": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "a runner asked to take a workspace whose launch fails",
+      "slug": "a-runner-asked-to-take-a-workspace-whose-launch-fails",
+      "params": {
+        "runnerId": "r1",
+        "rowId": "5",
+        "workspaceImage": "registry.example:5000/qits/workspace:2026.1004.1"
+      },
+      "dependsOn": [],
+      "operations": [
+        {
+          "operationId": "frame:launchFailed",
+          "kind": "message",
+          "frame": "launchFailed",
+          "direction": "runner-to-service",
+          "trigger": {
+            "kind": "frame",
+            "frame": "take"
+          },
+          "file": "a-runner-asked-to-take-a-workspace-whose-launch-fails/frame-launchFailed.json",
+          "frozen": {
+            "ids": [],
+            "instants": [],
+            "strings": [],
+            "listFilteredTo": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "a runner reconnecting while its node holds a running workspace",
+      "slug": "a-runner-reconnecting-while-its-node-holds-a-running-workspace",
+      "params": {
+        "runnerId": "r1",
+        "rowId": "5"
+      },
+      "dependsOn": [],
+      "operations": [
+        {
+          "operationId": "frame:hello",
+          "kind": "message",
+          "frame": "hello",
+          "direction": "runner-to-service",
+          "trigger": {
+            "kind": "event",
+            "event": "reconnect"
+          },
+          "file": "a-runner-reconnecting-while-its-node-holds-a-running-workspace/frame-hello.json",
+          "frozen": {
+            "ids": [],
+            "instants": [],
+            "strings": [
+              "$.runnerVersion"
+            ],
+            "listFilteredTo": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "a runner that has heard no estate yet",
+      "slug": "a-runner-that-has-heard-no-estate-yet",
+      "params": {
+        "runnerId": "r1",
+        "requestId": "00000000-0000-4000-8000-000000000001"
+      },
+      "dependsOn": [],
+      "operations": [
+        {
+          "operationId": "frame:healthChecked",
+          "kind": "message",
+          "frame": "healthChecked",
+          "direction": "runner-to-service",
+          "trigger": {
+            "kind": "frame",
+            "frame": "healthCheck"
+          },
+          "file": "a-runner-that-has-heard-no-estate-yet/frame-healthChecked.json",
+          "frozen": {
+            "ids": [
+              "$.requestId"
+            ],
+            "instants": [
+              "$.checks[*].data.volumes[*].createdAt",
+              "$.checks[*].data.connectedSince"
+            ],
+            "strings": [],
+            "numbers": [
+              "$.checks[*].data.node.memTotal",
+              "$.checks[*].data.node.swapTotal"
+            ],
+            "listFilteredTo": null
+          }
+        },
+        {
+          "operationId": "frame:loginState",
+          "kind": "message",
+          "frame": "loginState",
+          "direction": "runner-to-service",
+          "trigger": {
+            "kind": "frame",
+            "frame": "probeLogin"
+          },
+          "file": "a-runner-that-has-heard-no-estate-yet/frame-loginState.json",
+          "frozen": {
+            "ids": [],
+            "instants": [
+              "$.checkedAt"
+            ],
+            "strings": [],
+            "listFilteredTo": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "a runner whose node holds a running workspace",
+      "slug": "a-runner-whose-node-holds-a-running-workspace",
+      "params": {
+        "runnerId": "r1",
+        "rowId": "5"
+      },
+      "dependsOn": [],
+      "operations": [
+        {
+          "operationId": "frame:deleted",
+          "kind": "message",
+          "frame": "deleted",
+          "direction": "runner-to-service",
+          "trigger": {
+            "kind": "frame",
+            "frame": "delete"
+          },
+          "file": "a-runner-whose-node-holds-a-running-workspace/frame-deleted.json",
+          "frozen": {
+            "ids": [],
+            "instants": [],
+            "strings": [],
+            "listFilteredTo": null
+          }
+        },
+        {
+          "operationId": "frame:inventory",
+          "kind": "message",
+          "frame": "inventory",
+          "direction": "runner-to-service",
+          "trigger": {
+            "kind": "frame",
+            "frame": "ack"
+          },
+          "file": "a-runner-whose-node-holds-a-running-workspace/frame-inventory.json",
+          "frozen": {
+            "ids": [],
+            "instants": [],
+            "strings": [],
+            "listFilteredTo": null
+          }
+        },
+        {
+          "operationId": "frame:stopped",
+          "kind": "message",
+          "frame": "stopped",
+          "direction": "runner-to-service",
+          "trigger": {
+            "kind": "frame",
+            "frame": "stop"
+          },
+          "file": "a-runner-whose-node-holds-a-running-workspace/frame-stopped.json",
+          "frozen": {
+            "ids": [],
+            "instants": [],
+            "strings": [],
+            "listFilteredTo": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "a runner whose node holds a stopped workspace",
+      "slug": "a-runner-whose-node-holds-a-stopped-workspace",
+      "params": {
+        "runnerId": "r1",
+        "rowId": "5"
+      },
+      "dependsOn": [],
+      "operations": [
+        {
+          "operationId": "frame:inventory",
+          "kind": "message",
+          "frame": "inventory",
+          "direction": "runner-to-service",
+          "trigger": {
+            "kind": "frame",
+            "frame": "ack"
+          },
+          "file": "a-runner-whose-node-holds-a-stopped-workspace/frame-inventory.json",
+          "frozen": {
+            "ids": [],
+            "instants": [],
+            "strings": [],
+            "listFilteredTo": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "a runner whose node holds no workspaces",
+      "slug": "a-runner-whose-node-holds-no-workspaces",
+      "params": {
+        "runnerId": "r1"
+      },
+      "dependsOn": [],
+      "operations": [
+        {
+          "operationId": "frame:heartbeat",
+          "kind": "message",
+          "frame": "heartbeat",
+          "direction": "runner-to-service",
+          "trigger": {
+            "kind": "schedule",
+            "schedule": "heartbeat"
+          },
+          "file": "a-runner-whose-node-holds-no-workspaces/frame-heartbeat.json",
+          "frozen": {
+            "ids": [],
+            "instants": [],
+            "strings": [],
+            "listFilteredTo": null
+          }
+        },
+        {
+          "operationId": "frame:hello",
+          "kind": "message",
+          "frame": "hello",
+          "direction": "runner-to-service",
+          "trigger": {
+            "kind": "event",
+            "event": "connect"
+          },
+          "file": "a-runner-whose-node-holds-no-workspaces/frame-hello.json",
+          "frozen": {
+            "ids": [],
+            "instants": [],
+            "strings": [
+              "$.runnerVersion"
+            ],
+            "listFilteredTo": null
+          }
+        },
+        {
+          "operationId": "frame:inventory",
+          "kind": "message",
+          "frame": "inventory",
+          "direction": "runner-to-service",
+          "trigger": {
+            "kind": "frame",
+            "frame": "ack"
+          },
+          "file": "a-runner-whose-node-holds-no-workspaces/frame-inventory.json",
+          "frozen": {
+            "ids": [],
+            "instants": [],
+            "strings": [],
+            "listFilteredTo": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "a runner whose node is healthy and logged in",
+      "slug": "a-runner-whose-node-is-healthy-and-logged-in",
+      "params": {
+        "runnerId": "r1",
+        "requestId": "00000000-0000-4000-8000-000000000001",
+        "workspaceImage": "registry.example:5000/qits/workspace:2026.1004.1"
+      },
+      "dependsOn": [],
+      "operations": [
+        {
+          "operationId": "frame:healthChecked",
+          "kind": "message",
+          "frame": "healthChecked",
+          "direction": "runner-to-service",
+          "trigger": {
+            "kind": "frame",
+            "frame": "healthCheck"
+          },
+          "file": "a-runner-whose-node-is-healthy-and-logged-in/frame-healthChecked.json",
+          "frozen": {
+            "ids": [
+              "$.requestId"
+            ],
+            "instants": [
+              "$.checks[*].data.created",
+              "$.checks[*].data.containers[*].startedAt",
+              "$.checks[*].data.containers[*].finishedAt",
+              "$.checks[*].data.volumes[*].createdAt",
+              "$.checks[*].data.runnerContainer.startedAt",
+              "$.checks[*].data.checkedAt",
+              "$.checks[*].data.connectedSince"
+            ],
+            "strings": [
+              "$.checks[*].detail",
+              "$.checks[*].data.runnerContainer.name",
+              "$.checks[*].data.runnerContainer.version"
+            ],
+            "numbers": [
+              "$.checks[*].data.node.memTotal",
+              "$.checks[*].data.node.swapTotal"
+            ],
+            "listFilteredTo": null
+          }
+        },
+        {
+          "operationId": "frame:loginState",
+          "kind": "message",
+          "frame": "loginState",
+          "direction": "runner-to-service",
+          "trigger": {
+            "kind": "frame",
+            "frame": "estate"
+          },
+          "file": "a-runner-whose-node-is-healthy-and-logged-in/frame-loginState.json",
+          "frozen": {
+            "ids": [],
+            "instants": [
+              "$.checkedAt"
+            ],
+            "strings": [],
+            "listFilteredTo": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "a runner whose node is not logged in",
+      "slug": "a-runner-whose-node-is-not-logged-in",
+      "params": {
+        "runnerId": "r1",
+        "workspaceImage": "registry.example:5000/qits/workspace:2026.1004.1"
+      },
+      "dependsOn": [],
+      "operations": [
+        {
+          "operationId": "frame:loginState",
+          "kind": "message",
+          "frame": "loginState",
+          "direction": "runner-to-service",
+          "trigger": {
+            "kind": "frame",
+            "frame": "estate"
+          },
+          "file": "a-runner-whose-node-is-not-logged-in/frame-loginState.json",
+          "frozen": {
+            "ids": [],
+            "instants": [
+              "$.checkedAt"
+            ],
+            "strings": [],
+            "listFilteredTo": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "a runner whose running workspace exits by itself",
+      "slug": "a-runner-whose-running-workspace-exits-by-itself",
+      "params": {
+        "runnerId": "r1",
+        "rowId": "5"
+      },
+      "dependsOn": [],
+      "operations": [
+        {
+          "operationId": "frame:exited",
+          "kind": "message",
+          "frame": "exited",
+          "direction": "runner-to-service",
+          "trigger": {
+            "kind": "schedule",
+            "schedule": "exit-watch"
+          },
+          "file": "a-runner-whose-running-workspace-exits-by-itself/frame-exited.json",
+          "frozen": {
+            "ids": [],
+            "instants": [],
+            "strings": [],
+            "listFilteredTo": null
+          }
+        }
+      ]
+    },
+    {
+      "name": "a runner with a free slot and queued work",
+      "slug": "a-runner-with-a-free-slot-and-queued-work",
+      "params": {
+        "runnerId": "r1"
+      },
+      "dependsOn": [],
+      "operations": [
+        {
+          "operationId": "frame:reserve",
+          "kind": "message",
+          "frame": "reserve",
+          "direction": "runner-to-service",
+          "trigger": {
+            "kind": "frame",
+            "frame": "backlog"
+          },
+          "file": "a-runner-with-a-free-slot-and-queued-work/frame-reserve.json",
+          "frozen": {
+            "ids": [],
+            "instants": [],
+            "strings": [],
+            "listFilteredTo": null
+          }
+        }
+      ]
+    }
+  ]
+}

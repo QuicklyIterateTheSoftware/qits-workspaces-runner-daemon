@@ -1,0 +1,6 @@
+{
+  "type": "inventory",
+  "containers": [],
+  "volumes": [],
+  "dotClaudeVolume": "qits-workspaces-runner-dot-claude-r1"
+}

@@ -46,7 +46,7 @@
              toolkit's register call against qits-workspaces-service's golden masters, which are this
              daemon's to pin (qits-idp's and qits-observability's come with the kit). Test scope;
              moved by the maintenance bump like any other released pin. -->
-        <qits.workspaces-golden-masters.version>2026.1019.95426</qits.workspaces-golden-masters.version>
+        <qits.workspaces-golden-masters.version>2026.1022.75919</qits.workspaces-golden-masters.version>
 
         <!-- qits-observability's LOG_EXPORT row needs "an empty telemetry buffer" recorded, which
              lands only at this version (qits-1163) — newer than the one qits-runner-toolkit-contracts

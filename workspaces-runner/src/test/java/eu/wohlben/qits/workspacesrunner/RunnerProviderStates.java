@@ -12,6 +12,7 @@ import eu.wohlben.qits.runner.toolkit.Housekeeping;
 import eu.wohlben.qits.runner.toolkit.RunnerExit;
 import eu.wohlben.qits.runner.toolkit.RunnerIdentity;
 import eu.wohlben.qits.runner.toolkit.RunnerRuntime;
+import eu.wohlben.qits.runner.toolkit.RunnerSession;
 import eu.wohlben.qits.runner.toolkit.RunnerSettings;
 import eu.wohlben.qits.runner.toolkit.SelfUpdate;
 import eu.wohlben.qits.runner.toolkit.Telemetry;
@@ -58,9 +59,9 @@ import java.util.function.BooleanSupplier;
  *
  * <p>A class of its own, not the recorder's, because two suites drive the same states: {@code
  * RunnerGoldenMasterRecordingTest} records what each produces into {@code golden-masters/}, and the
- * message-pact verifier this repository gains next (qits-950 A2) re-produces each frame from the
- * state its consumer's pact names. One fresh runner per frame: a {@code stop} and a {@code delete}
- * of one row in one session would each see what the other left.
+ * message-pact verifier, {@code RunnerFramesProviderPactTest} (qits-950 A2), re-produces each
+ * frame from the state its consumer's pact names. One fresh runner per frame: a {@code stop} and a
+ * {@code delete} of one row in one session would each see what the other left.
  */
 final class RunnerProviderStates {
 
@@ -425,6 +426,21 @@ final class RunnerProviderStates {
       return this;
     }
 
+    /** The runner's session handle: its held items and whether it is quarantined. */
+    RunnerSession session() {
+      return runtime.session();
+    }
+
+    /** The runner's state directory, where its client pair is kept. */
+    Path stateDir() {
+      return stateDir;
+    }
+
+    /** What {@link RunnerRuntime#run} returned, once the runner has ended. */
+    CompletableFuture<Integer> exit() {
+      return exit;
+    }
+
     /** Send {@code frame} as the host, and answer the first {@code type} the runner sends after. */
     String answer(RunnerMessage frame, String type) throws InterruptedException {
       int from = tap.mark();
@@ -445,14 +461,15 @@ final class RunnerProviderStates {
           "");
     }
 
-    private void rowVolume(long rowId) throws Exception {
+    /** The row's {@code /workspace} volume on the node, labelled as the runner makes it. */
+    void rowVolume(long rowId) throws Exception {
       docker.volume(
           names(rowId),
           Map.of(IDENTITY.ownerLabel(), RUNNER_ID, IDENTITY.workLabel(), Long.toString(rowId)));
     }
 
     /** {@code qits-workspaces-runner-ws-<rowId>-r1}: a row's container and its volume. */
-    private static String names(long rowId) {
+    static String names(long rowId) {
       return new WorkspaceNames(IDENTITY, RUNNER_ID).container(rowId);
     }
 

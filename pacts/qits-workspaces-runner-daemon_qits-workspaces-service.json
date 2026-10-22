@@ -1,0 +1,1106 @@
+{
+  "consumer": {
+    "name": "qits-workspaces-runner-daemon"
+  },
+  "interactions": [
+    {
+      "comments": {
+        "references": {
+          "qits-call": {
+            "app": "qits-workspaces-service",
+            "frame": "retire"
+          },
+          "qits-trigger": {
+            "app": "qits-workspaces-service",
+            "kind": "operation",
+            "operationId": "deleteRunner"
+          }
+        }
+      },
+      "contents": {
+        "content": {
+          "kind": "DELETED",
+          "reason": "the runner was deleted",
+          "type": "retire"
+        },
+        "contentType": "application/json",
+        "encoded": false
+      },
+      "description": "deleteRunner: frame:retire",
+      "key": "7b559da2",
+      "matchingRules": {
+        "body": {
+          "$.kind": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.reason": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "contentType": "application/json"
+      },
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "a runner in service",
+          "params": {
+            "runnerId": "00000000-0000-4000-8000-000000000020",
+            "runnerName": "localhost"
+          }
+        }
+      ],
+      "type": "Asynchronous/Messages"
+    },
+    {
+      "comments": {
+        "references": {
+          "qits-call": {
+            "app": "qits-workspaces-service",
+            "frame": "delete"
+          },
+          "qits-trigger": {
+            "app": "qits-workspaces-service",
+            "kind": "operation",
+            "operationId": "deleteWorkspaceContainer"
+          }
+        }
+      },
+      "contents": {
+        "content": {
+          "rowId": 1,
+          "type": "delete"
+        },
+        "contentType": "application/json",
+        "encoded": false
+      },
+      "description": "deleteWorkspaceContainer: frame:delete",
+      "key": "7c9f8617",
+      "matchingRules": {
+        "body": {
+          "$.rowId": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "number"
+              }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "contentType": "application/json"
+      },
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "a workspace slot running on a runner in service",
+          "params": {
+            "agentId": "00000000-0000-4000-8000-0000000000a1",
+            "repositoryId": "00000000-0000-4000-8000-000000000013",
+            "runnerId": "00000000-0000-4000-8000-000000000020",
+            "runnerName": "localhost",
+            "workspaceId": "1"
+          }
+        }
+      ],
+      "type": "Asynchronous/Messages"
+    },
+    {
+      "comments": {
+        "references": {
+          "qits-call": {
+            "app": "qits-workspaces-service",
+            "frame": "reinstated"
+          },
+          "qits-trigger": {
+            "app": "qits-workspaces-service",
+            "kind": "operation",
+            "operationId": "greenlightRunner"
+          }
+        }
+      },
+      "contents": {
+        "content": {
+          "by": "dev",
+          "type": "reinstated"
+        },
+        "contentType": "application/json",
+        "encoded": false
+      },
+      "description": "greenlightRunner: frame:reinstated",
+      "key": "263f151d",
+      "matchingRules": {
+        "body": {
+          "$.by": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "contentType": "application/json"
+      },
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "a quarantined runner holding a socket",
+          "params": {
+            "runnerId": "00000000-0000-4000-8000-000000000020",
+            "runnerName": "localhost"
+          }
+        }
+      ],
+      "type": "Asynchronous/Messages"
+    },
+    {
+      "comments": {
+        "references": {
+          "qits-call": {
+            "app": "qits-workspaces-service",
+            "frame": "healthCheck"
+          },
+          "qits-trigger": {
+            "app": "qits-workspaces-service",
+            "kind": "operation",
+            "operationId": "requestRunnerHealthcheck"
+          }
+        }
+      },
+      "contents": {
+        "content": {
+          "requestId": "00000000-0000-4000-8000-000000000100",
+          "type": "healthCheck"
+        },
+        "contentType": "application/json",
+        "encoded": false
+      },
+      "description": "requestRunnerHealthcheck: frame:healthCheck",
+      "key": "42500e37",
+      "matchingRules": {
+        "body": {
+          "$.requestId": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "regex",
+                "regex": "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+              }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "contentType": "application/json"
+      },
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "a runner in service",
+          "params": {
+            "runnerId": "00000000-0000-4000-8000-000000000020",
+            "runnerName": "localhost"
+          }
+        }
+      ],
+      "type": "Asynchronous/Messages"
+    },
+    {
+      "comments": {
+        "references": {
+          "qits-call": {
+            "app": "qits-workspaces-service",
+            "frame": "probeLogin"
+          },
+          "qits-trigger": {
+            "app": "qits-workspaces-service",
+            "kind": "operation",
+            "operationId": "requestRunnerLoginCheck"
+          }
+        }
+      },
+      "contents": {
+        "content": {
+          "type": "probeLogin"
+        },
+        "contentType": "application/json",
+        "encoded": false
+      },
+      "description": "requestRunnerLoginCheck: frame:probeLogin",
+      "key": "63bad089",
+      "metadata": {
+        "contentType": "application/json"
+      },
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "a runner in service",
+          "params": {
+            "runnerId": "00000000-0000-4000-8000-000000000020",
+            "runnerName": "localhost"
+          }
+        }
+      ],
+      "type": "Asynchronous/Messages"
+    },
+    {
+      "comments": {
+        "references": {
+          "qits-call": {
+            "app": "qits-workspaces-service",
+            "frame": "stop"
+          },
+          "qits-trigger": {
+            "app": "qits-workspaces-service",
+            "kind": "operation",
+            "operationId": "stopWorkspaceContainer"
+          }
+        }
+      },
+      "contents": {
+        "content": {
+          "rowId": 1,
+          "type": "stop"
+        },
+        "contentType": "application/json",
+        "encoded": false
+      },
+      "description": "stopWorkspaceContainer: frame:stop",
+      "key": "f53ca099",
+      "matchingRules": {
+        "body": {
+          "$.rowId": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "number"
+              }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "contentType": "application/json"
+      },
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "a workspace slot running on a runner in service",
+          "params": {
+            "agentId": "00000000-0000-4000-8000-0000000000a1",
+            "repositoryId": "00000000-0000-4000-8000-000000000013",
+            "runnerId": "00000000-0000-4000-8000-000000000020",
+            "runnerName": "localhost",
+            "workspaceId": "1"
+          }
+        }
+      ],
+      "type": "Asynchronous/Messages"
+    },
+    {
+      "comments": {
+        "references": {
+          "qits-call": {
+            "app": "qits-workspaces-service",
+            "frame": "ack"
+          },
+          "qits-trigger": {
+            "app": "qits-workspaces-service",
+            "event": "workspaces-runner:hello",
+            "kind": "event"
+          }
+        }
+      },
+      "contents": {
+        "content": {
+          "adoptedWorkspaces": [
+            "1"
+          ],
+          "capabilityVersion": 1,
+          "slots": 1,
+          "type": "ack"
+        },
+        "contentType": "application/json",
+        "encoded": false
+      },
+      "description": "workspaces-runner:hello: frame:ack",
+      "key": "426b5510",
+      "matchingRules": {
+        "body": {
+          "$.adoptedWorkspaces": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type",
+                "max": 1,
+                "min": 1
+              }
+            ]
+          },
+          "$.adoptedWorkspaces[*]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.capabilityVersion": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "number"
+              }
+            ]
+          },
+          "$.slots": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "number"
+              }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "contentType": "application/json"
+      },
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "a greenlit runner dialling in holding a workspace it owns",
+          "params": {
+            "runnerId": "00000000-0000-4000-8000-000000000020",
+            "runnerName": "localhost",
+            "workspaceId": "1"
+          }
+        }
+      ],
+      "type": "Asynchronous/Messages"
+    },
+    {
+      "comments": {
+        "references": {
+          "qits-call": {
+            "app": "qits-workspaces-service",
+            "frame": "backlog"
+          },
+          "qits-trigger": {
+            "app": "qits-workspaces-service",
+            "event": "workspaces-runner:hello",
+            "kind": "event"
+          }
+        }
+      },
+      "contents": {
+        "content": {
+          "queued": 1,
+          "type": "backlog"
+        },
+        "contentType": "application/json",
+        "encoded": false
+      },
+      "description": "workspaces-runner:hello: frame:backlog",
+      "key": "72116594",
+      "matchingRules": {
+        "body": {
+          "$.queued": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "number"
+              }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "contentType": "application/json"
+      },
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "a greenlit runner dialling in with a workspace queued for it",
+          "params": {
+            "runnerId": "00000000-0000-4000-8000-000000000020",
+            "runnerName": "localhost",
+            "workspaceId": "1"
+          }
+        }
+      ],
+      "type": "Asynchronous/Messages"
+    },
+    {
+      "comments": {
+        "references": {
+          "qits-call": {
+            "app": "qits-workspaces-service",
+            "frame": "estate"
+          },
+          "qits-trigger": {
+            "app": "qits-workspaces-service",
+            "event": "workspaces-runner:hello",
+            "kind": "event"
+          }
+        }
+      },
+      "contents": {
+        "content": {
+          "owned": [
+            1
+          ],
+          "type": "estate",
+          "workspaceImage": "registry.qits.runners.example.test/qits/workspace:2026.101.120000"
+        },
+        "contentType": "application/json",
+        "encoded": false
+      },
+      "description": "workspaces-runner:hello: frame:estate",
+      "key": "3bc77431",
+      "matchingRules": {
+        "body": {
+          "$.owned": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type",
+                "max": 1,
+                "min": 1
+              }
+            ]
+          },
+          "$.owned[*]": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.workspaceImage": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "contentType": "application/json"
+      },
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "a greenlit runner dialling in holding a workspace it owns",
+          "params": {
+            "runnerId": "00000000-0000-4000-8000-000000000020",
+            "runnerName": "localhost",
+            "workspaceId": "1"
+          }
+        }
+      ],
+      "type": "Asynchronous/Messages"
+    },
+    {
+      "comments": {
+        "references": {
+          "qits-call": {
+            "app": "qits-workspaces-service",
+            "frame": "quarantined"
+          },
+          "qits-trigger": {
+            "app": "qits-workspaces-service",
+            "event": "workspaces-runner:hello",
+            "kind": "event"
+          }
+        }
+      },
+      "contents": {
+        "content": {
+          "reason": "awaiting first health check",
+          "since": "2026-01-01T00:00:00Z",
+          "type": "quarantined"
+        },
+        "contentType": "application/json",
+        "encoded": false
+      },
+      "description": "workspaces-runner:hello: frame:quarantined",
+      "key": "d0e1c87c",
+      "matchingRules": {
+        "body": {
+          "$.reason": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.since": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "regex",
+                "regex": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}(:\\d{2}(\\.\\d{1,9})?)?(Z|[+-]\\d{2}:?\\d{2})$"
+              }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "contentType": "application/json"
+      },
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "a quarantined runner dialling in",
+          "params": {
+            "runnerId": "00000000-0000-4000-8000-000000000020",
+            "runnerName": "localhost"
+          }
+        }
+      ],
+      "type": "Asynchronous/Messages"
+    },
+    {
+      "comments": {
+        "references": {
+          "qits-call": {
+            "app": "qits-workspaces-service",
+            "frame": "upgrade"
+          },
+          "qits-trigger": {
+            "app": "qits-workspaces-service",
+            "event": "workspaces-runner:hello",
+            "kind": "event"
+          }
+        }
+      },
+      "contents": {
+        "content": {
+          "image": "registry.qits.runners.example.test/qits/qits-workspaces-runner:2026.101.120000",
+          "sha256": null,
+          "type": "upgrade",
+          "version": "2026.101.120000"
+        },
+        "contentType": "application/json",
+        "encoded": false
+      },
+      "description": "workspaces-runner:hello: frame:upgrade",
+      "key": "324788cc",
+      "matchingRules": {
+        "body": {
+          "$.image": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.version": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "contentType": "application/json"
+      },
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "a greenlit runner dialling in at an older version",
+          "params": {
+            "runnerId": "00000000-0000-4000-8000-000000000020",
+            "runnerName": "localhost",
+            "runnerVersion": "2026.101.100000"
+          }
+        }
+      ],
+      "type": "Asynchronous/Messages"
+    },
+    {
+      "comments": {
+        "references": {
+          "qits-call": {
+            "app": "qits-workspaces-service",
+            "frame": "nothing"
+          },
+          "qits-trigger": {
+            "app": "qits-workspaces-service",
+            "event": "workspaces-runner:reserve",
+            "kind": "event"
+          }
+        }
+      },
+      "contents": {
+        "content": {
+          "type": "nothing"
+        },
+        "contentType": "application/json",
+        "encoded": false
+      },
+      "description": "workspaces-runner:reserve: frame:nothing",
+      "key": "5b1ebfe",
+      "metadata": {
+        "contentType": "application/json"
+      },
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "a runner in service with every slot taken",
+          "params": {
+            "runnerId": "00000000-0000-4000-8000-000000000020",
+            "runnerName": "localhost",
+            "workspaceId": "1"
+          }
+        }
+      ],
+      "type": "Asynchronous/Messages"
+    },
+    {
+      "comments": {
+        "references": {
+          "qits-call": {
+            "app": "qits-workspaces-service",
+            "frame": "take"
+          },
+          "qits-trigger": {
+            "app": "qits-workspaces-service",
+            "event": "workspaces-runner:reserve",
+            "kind": "event"
+          }
+        }
+      },
+      "contents": {
+        "content": {
+          "rowId": 1,
+          "spec": {
+            "cpus": null,
+            "env": {
+              "CLAUDE_CONFIG_DIR": "/claude-home/.claude",
+              "GIT_AUTHOR_EMAIL": "qits@local",
+              "GIT_AUTHOR_NAME": "qits",
+              "GIT_COMMITTER_EMAIL": "qits@local",
+              "GIT_COMMITTER_NAME": "qits",
+              "GIT_CONFIG_GLOBAL": "/etc/qits-gitconfig",
+              "KIMI_CODE_HOME": "/claude-home/.kimi-code",
+              "MAVEN_OPTS": "-Dmaven.repo.local=/caches/m2",
+              "QITS_DOMAIN": "runners.example.test",
+              "QITS_GIT_AUTH_HOST": "githost.qits.runners.example.test",
+              "QITS_PLATFORM_MCP_URL": "https://mcp.qits.runners.example.test/mcp",
+              "QITS_TOKEN": "qits_tok_contract-workspace",
+              "QITS_TOKEN_SUBJECT": "contract-workspace-token",
+              "QITS_WORKSPACE_DAEMON_API_BASE_PATH": "/workspaces/container/1/",
+              "QITS_WORKSPACE_DAEMON_API_TOKEN": "qits-workspace-daemon",
+              "QITS_WORKSPACE_DAEMON_AUTO_PUSH_ENABLED": "true",
+              "QITS_WORKSPACE_DAEMON_GIT_BASE_URL": "https://githost.qits.runners.example.test/git",
+              "QITS_WORKSPACE_DAEMON_PROJECT_ID": "test-project",
+              "QITS_WORKSPACE_DAEMON_REPOSITORY_ID": "00000000-0000-4000-8000-000000000013",
+              "QITS_WORKSPACE_DAEMON_REPO_NAME": "name-of-00000000-0000-4000-8000-000000000013",
+              "QITS_WORKSPACE_DAEMON_URL": "wss://workspaces.qits.runners.example.test/workspaces/daemon/1",
+              "QITS_WORKSPACE_DAEMON_WORKSPACE_ID": "ws-contract",
+              "TZ": "GMT",
+              "npm_config_store_dir": "/caches/pnpm/store"
+            },
+            "image": "registry.qits.runners.example.test/qits/workspace:2026.101.120000",
+            "init": true,
+            "labels": {
+              "qits.branch": "",
+              "qits.parent": "",
+              "qits.project": "test-project",
+              "qits.repository": "00000000-0000-4000-8000-000000000013",
+              "qits.workspace": "ws-contract"
+            },
+            "memoryLimit": "4g",
+            "memorySwapLimit": "8g",
+            "mounts": [
+              {
+                "target": "/workspace",
+                "volume": "WORKSPACE"
+              },
+              {
+                "target": "/workspace",
+                "volume": "WORKSPACE"
+              },
+              {
+                "target": "/workspace",
+                "volume": "WORKSPACE"
+              },
+              {
+                "target": "/workspace",
+                "volume": "WORKSPACE"
+              }
+            ],
+            "oomScoreAdj": 600,
+            "pidsLimit": null
+          },
+          "type": "take"
+        },
+        "contentType": "application/json",
+        "encoded": false
+      },
+      "description": "workspaces-runner:reserve: frame:take",
+      "key": "66daec33",
+      "matchingRules": {
+        "body": {
+          "$.rowId": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "number"
+              }
+            ]
+          },
+          "$.spec.env.CLAUDE_CONFIG_DIR": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.env.GIT_AUTHOR_EMAIL": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.env.GIT_AUTHOR_NAME": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.env.GIT_COMMITTER_EMAIL": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.env.GIT_COMMITTER_NAME": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.env.GIT_CONFIG_GLOBAL": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.env.KIMI_CODE_HOME": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.env.MAVEN_OPTS": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.env.QITS_DOMAIN": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.env.QITS_GIT_AUTH_HOST": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.env.QITS_PLATFORM_MCP_URL": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.env.QITS_TOKEN": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.env.QITS_TOKEN_SUBJECT": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.env.QITS_WORKSPACE_DAEMON_API_BASE_PATH": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.env.QITS_WORKSPACE_DAEMON_API_TOKEN": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.env.QITS_WORKSPACE_DAEMON_AUTO_PUSH_ENABLED": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.env.QITS_WORKSPACE_DAEMON_GIT_BASE_URL": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.env.QITS_WORKSPACE_DAEMON_PROJECT_ID": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.env.QITS_WORKSPACE_DAEMON_REPOSITORY_ID": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "regex",
+                "regex": "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+              }
+            ]
+          },
+          "$.spec.env.QITS_WORKSPACE_DAEMON_REPO_NAME": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.env.QITS_WORKSPACE_DAEMON_URL": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.env.QITS_WORKSPACE_DAEMON_WORKSPACE_ID": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.env.TZ": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.env.npm_config_store_dir": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.image": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.init": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.labels['qits.branch']": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.labels['qits.parent']": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.labels['qits.project']": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.labels['qits.repository']": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "regex",
+                "regex": "[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+              }
+            ]
+          },
+          "$.spec.labels['qits.workspace']": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.memoryLimit": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.memorySwapLimit": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.mounts": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type",
+                "max": 4,
+                "min": 4
+              }
+            ]
+          },
+          "$.spec.mounts[*].target": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.mounts[*].volume": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "type"
+              }
+            ]
+          },
+          "$.spec.oomScoreAdj": {
+            "combine": "AND",
+            "matchers": [
+              {
+                "match": "number"
+              }
+            ]
+          }
+        }
+      },
+      "metadata": {
+        "contentType": "application/json"
+      },
+      "pending": false,
+      "providerStates": [
+        {
+          "name": "a runner in service with a free slot and a queued workspace",
+          "params": {
+            "runnerId": "00000000-0000-4000-8000-000000000020",
+            "runnerName": "localhost",
+            "workspaceId": "1"
+          }
+        }
+      ],
+      "type": "Asynchronous/Messages"
+    }
+  ],
+  "metadata": {
+    "pactSpecification": {
+      "version": "4.0"
+    },
+    "plugins": []
+  },
+  "provider": {
+    "name": "qits-workspaces-service"
+  }
+}

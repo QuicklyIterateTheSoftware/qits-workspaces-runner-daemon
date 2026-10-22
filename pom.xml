@@ -44,9 +44,16 @@
 
         <!-- The register host's recordings (qits-1163): qits-runner-toolkit-contracts pacts the
              toolkit's register call against qits-workspaces-service's golden masters, which are this
-             daemon's to pin (qits-idp's and qits-observability's come with the kit). Test scope;
-             moved by the maintenance bump like any other released pin. -->
+             daemon's to pin (qits-idp's and qits-observability's come with the kit). The same tree
+             holds the frames the service sends a runner (qits-950, A1), which ServiceFramesContract
+             builds this daemon's message pact from. Test scope; moved by the maintenance bump like
+             any other released pin. -->
         <qits.workspaces-golden-masters.version>2026.1022.75919</qits.workspaces-golden-masters.version>
+
+        <!-- pact-jvm, test scope only, at qits-workspaces-service's version: the consumer half
+             qits-pact-consumer brings, which ServiceFramesConsumerPactTest's message pact is built
+             with, managed here so the core under it is one version. -->
+        <pact-jvm.version>4.7.5</pact-jvm.version>
 
         <!-- qits-observability's LOG_EXPORT row needs "an empty telemetry buffer" recorded, which
              lands only at this version (qits-1163) — newer than the one qits-runner-toolkit-contracts
@@ -117,6 +124,12 @@
                 <groupId>eu.wohlben.qits</groupId>
                 <artifactId>qits-workspaces-golden-masters</artifactId>
                 <version>${qits.workspaces-golden-masters.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>au.com.dius.pact.consumer</groupId>
+                <artifactId>junit5</artifactId>
+                <version>${pact-jvm.version}</version>
+                <scope>test</scope>
             </dependency>
             <!-- Overrides the older version qits-runner-toolkit-contracts brings transitively
                  (qits-1163); see the property above. -->

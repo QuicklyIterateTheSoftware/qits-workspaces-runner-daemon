@@ -28,6 +28,12 @@ artifacts:
 # platform packs each file as eu.wohlben.qits:qits-workspaces-runner-daemon-pacts-<provider> and
 # publishes it only when it changed.
 #
+# THE MESSAGE PACT (qits-950, A1) needs no entry of its own: ServiceFramesConsumerPactTest writes the
+# frames qits-workspaces-service sends a runner as pacts/qits-workspaces-runner-daemon_qits-workspaces-service.json,
+# and the CLI packs every top-level pacts/*_<provider>.json for the provider declared (`qits artifacts
+# publish contract --kind pacts --provider qits-workspaces-service --from pacts/`), so the
+# qits-workspaces-service package carries it beside the toolkit's three-part register pact.
+#
 # THE PROVIDER GOLDEN MASTERS (qits-950): the runner serves no HTTP, but it is a provider all the
 # same — of the frames it sends qits-workspaces-service on the control socket.
 # RunnerGoldenMasterRecordingTest records each, per provider state, into `golden-masters/` (one

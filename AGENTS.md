@@ -116,7 +116,7 @@ answers (qits-546), and the service builds its message pact from the published t
   the frame **as written on the socket**: `WireTap` is a WebSocket hop the register door points the
   runner at, keeping the runner's text frames verbatim. Never build or re-encode a frame here — the
   host's frames are the only scripted ones. The class is shared on purpose: the message-pact
-  verifier that comes next drives the same states.
+  verifier (`RunnerFramesProviderPactTest`, below) drives the same states.
 - **`RunnerGoldenMasterRecordingTest`** freezes each frame (`GoldenFrames`: UUIDs, instants, the
   runner's own `WorkspacesRunnerBinary.VERSION` as `2026.101.0`, and the `/proc/meminfo` numbers a
   health check reports as `0`) and writes `golden-masters/<state-slug>/frame-<type>.json` plus
@@ -151,6 +151,57 @@ state is about one.
 **A new frame the runner sends** (a new record, or a lifecycle frame the toolkit starts building)
 fails `RunnerFramesGuardTest` until it has a state: add it to `RunnerProviderStates.FRAMES`, rerun
 the recorder with `-Dgolden.update=true`, review and commit the tree.
+
+## The frames it receives are a consumer message pact (qits-950, A1)
+
+qits-workspaces-service records every frame it sends a runner (`ack`, `estate`, `backlog`, `take`,
+`nothing`, `stop`, `delete`, `probeLogin`, `healthCheck`, `upgrade`, `retire`, `quarantined`,
+`reinstated`) as `frame:<type>` entries of its golden masters, which this repository pins in test
+scope (`qits.workspaces-golden-masters.version`, the same jar the register pact reads).
+
+- **`ServiceFramesContract`** holds one row per recorded (state, frame): the service's trigger (an
+  event such as `workspaces-runner:hello`, or an operation such as `stopWorkspaceContainer`), its
+  state, the frame, and what the runner must do with it. Each row runs a
+  `RunnerProviderStates.Node` — the real `WorkspacesRunnerDomain` under the toolkit's real
+  `RunnerRuntime`, `FakeDocker`, `FakeRunnerHost` — and writes the pact's own message text onto the
+  socket with `sendRaw`; only the setting up uses typed frames. It asserts the effect on the node
+  and the frames the runner answers with (`take` → `docker run` with the row's volume, labels, env
+  and image, then `launched`; `delete` → stop, `rm`, the `-ws-<rowId>` volume gone, then `deleted`;
+  `retire{DELETED}` → decommission and exit 0; …).
+- **`ServiceFramesConsumerPactTest`** runs every row and writes
+  `pacts/qits-workspaces-runner-daemon_qits-workspaces-service.json` (V4 `Asynchronous/Messages`,
+  compared by default, `-Dgolden.update=true` rewrites), each interaction carrying `qits-call`
+  `{app, frame}` and `qits-trigger`. The platform publishes it in the existing
+  `qits-workspaces-runner-daemon-pacts-qits-workspaces-service` package (see release.yml).
+- **The helpers are in `contracts/`** (`MessageGoldenMasters`, `MessageBodies`, `PactMessage`,
+  `MessageContract`, `ClasspathPactLoader`), Vert.x JSON and pact-jvm only, nothing of this runner
+  in them — so qits-runner-javalib's `runner-toolkit-contracts` can take them for the next runner.
+  The matchers are the service's message helper's: `$.type` exact, ids/instants by regex, every
+  other leaf by type, arrays `minMaxArrayLike(n, n)`, mixed-shape arrays element by element.
+  `PactMessage.text(params)` swaps the service's frozen values (workspace 1) for the row's own
+  (workspace 7) **only at the paths the service froze** — so an `ack`'s `slots: 1` stays 1 — and
+  matches every text against the interaction's rules before it is sent.
+- **`ServiceFramesGuardTest`** (A3) reads the frames the runner handles off its dispatch — the
+  `SwitchBootstraps.typeSwitch` case labels in `WorkspacesRunnerDomain` and the toolkit's
+  `RunnerRuntime` — and fails, naming the frame, when one has no row; and when the pinned golden
+  masters record a (state, frame) no row receives.
+
+**A new frame from the service** fails `ServiceFramesGuardTest`: once the service records it, add a
+row, rerun `ServiceFramesConsumerPactTest` with `-Dgolden.update=true` and commit the pact.
+
+## The service's pact of the frames it sends is verified here (qits-950, A2)
+
+`RunnerFramesProviderPactTest` verifies `pacts/qits-workspaces-service_qits-workspaces-runner-daemon.json`
+off the pinned `eu.wohlben.qits:qits-workspaces-service-pacts-qits-workspaces-runner-daemon`
+(`qits.workspaces-service-pacts-qits-workspaces-runner-daemon.version`, test scope) with pact-jvm's
+`MessageTestTarget` (`pact-jvm.version`, the service's). A `@State` per `RunnerProviderStates`
+state notes the state; the `@PactVerifyProvider` for the description makes the frame with
+`RunnerProviderStates.produce` — the real runner in that state, captured by `WireTap`, the
+recorder's own path — never from a recorded file or hand-built JSON. It fails on a state the
+runner does not answer for, on an interaction without `qits-call`/`qits-trigger`, and on a
+`qits-trigger` that is not the cause the runner records for that frame. A mutation proves it: drop
+`dotClaudeVolume` from `WorkspacesRunnerCodec`'s inventory encode and the three `ack:
+frame:inventory` interactions go red.
 
 ## Formatting
 

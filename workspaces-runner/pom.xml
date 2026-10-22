@@ -74,6 +74,19 @@
             <artifactId>qits-observability-golden-masters</artifactId>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <!-- qits-950 A2: the service's message pact of the frames this runner sends, verified by
+                 RunnerFramesProviderPactTest. -->
+            <groupId>eu.wohlben.qits</groupId>
+            <artifactId>qits-workspaces-service-pacts-qits-workspaces-runner-daemon</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <!-- qits-950: pact-jvm's message verifier (MessageTestTarget, @PactVerifyProvider). -->
+            <groupId>au.com.dius.pact.provider</groupId>
+            <artifactId>junit5</artifactId>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

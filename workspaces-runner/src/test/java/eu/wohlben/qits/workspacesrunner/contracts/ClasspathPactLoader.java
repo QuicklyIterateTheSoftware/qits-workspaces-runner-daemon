@@ -1,0 +1,132 @@
+package eu.wohlben.qits.workspacesrunner.contracts;
+
+import au.com.dius.pact.core.model.DefaultPactReader;
+import au.com.dius.pact.core.model.Pact;
+import au.com.dius.pact.core.model.UrlSource;
+import au.com.dius.pact.core.support.json.JsonParser;
+import au.com.dius.pact.provider.junitsupport.loader.PactLoader;
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.UncheckedIOException;
+import java.net.JarURLConnection;
+import java.net.URI;
+import java.net.URISyntaxException;
+import java.net.URL;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Enumeration;
+import java.util.List;
+import java.util.TreeMap;
+import java.util.jar.JarEntry;
+import java.util.jar.JarFile;
+import java.util.stream.Stream;
+
+/**
+ * <b>Every {@code pacts/<consumer>_<provider>.json} resource on the test classpath</b> — the pinned
+ * consumer pact jars, which is the point — qits-workspaces-service's loader of the same name, for a
+ * provider that is a runner. A file named any other way is not loaded, so this runner's own
+ * consumer pacts (written to the repository's {@code pacts/}, never onto the classpath) and other
+ * providers' files in a shared jar stay out.
+ *
+ * <p><b>Finding nothing fails</b>: the consumer pact jar is pinned in the pom, so a lost dependency
+ * must not pass as "nothing to verify".
+ */
+public class ClasspathPactLoader implements PactLoader {
+
+  static final String DIRECTORY = "pacts/";
+
+  @Override
+  public String description() {
+    return "classpath:" + DIRECTORY + "*_<provider>.json";
+  }
+
+  @Override
+  public au.com.dius.pact.core.model.PactSource getPactSource() {
+    return null;
+  }
+
+  @Override
+  public List<Pact> load(String providerName) {
+    String suffix = "_" + providerName + ".json";
+    TreeMap<String, URL> found = new TreeMap<>();
+    try {
+      Enumeration<URL> dirs = getClass().getClassLoader().getResources("pacts");
+      while (dirs.hasMoreElements()) {
+        list(dirs.nextElement(), suffix, found);
+      }
+    } catch (IOException e) {
+      throw new UncheckedIOException(e);
+    }
+    if (found.isEmpty()) {
+      throw new IllegalStateException(
+          "No consumer pact against "
+              + providerName
+              + " on the test classpath (looked for "
+              + DIRECTORY
+              + "*"
+              + suffix
+              + ") — the pinned consumer pact test dependency is missing");
+    }
+    List<Pact> pacts = new ArrayList<>();
+    for (URL url : found.values()) {
+      try (InputStream in = url.openStream()) {
+        String json = new String(in.readAllBytes(), StandardCharsets.UTF_8);
+        pacts.add(
+            DefaultPactReader.INSTANCE.pactFromJson(
+                JsonParser.parseString(json).asObject(), new UrlSource(url.toString())));
+      } catch (IOException e) {
+        throw new UncheckedIOException("Reading the pact " + url, e);
+      }
+    }
+    return Collections.unmodifiableList(pacts);
+  }
+
+  /** Every matching file under one {@code pacts} directory URL, keyed by its URL. */
+  private static void list(URL dir, String suffix, TreeMap<String, URL> found) throws IOException {
+    switch (dir.getProtocol()) {
+      case "jar" -> {
+        JarURLConnection connection = (JarURLConnection) dir.openConnection();
+        connection.setUseCaches(false);
+        String jar = connection.getJarFileURL().toString();
+        try (JarFile file = new JarFile(Path.of(toUri(connection.getJarFileURL())).toFile())) {
+          Enumeration<JarEntry> entries = file.entries();
+          while (entries.hasMoreElements()) {
+            String name = entries.nextElement().getName();
+            if (matches(name, suffix)) {
+              String url = "jar:" + jar + "!/" + name;
+              found.put(url, URI.create(url).toURL());
+            }
+          }
+        }
+      }
+      case "file" -> {
+        try (Stream<Path> files = Files.list(Path.of(toUri(dir)))) {
+          for (Path file : files.toList()) {
+            if (matches(DIRECTORY + file.getFileName(), suffix)) {
+              found.put(file.toUri().toString(), file.toUri().toURL());
+            }
+          }
+        }
+      }
+      default -> throw new IllegalStateException("Cannot list pacts at " + dir);
+    }
+  }
+
+  private static boolean matches(String entry, String suffix) {
+    return entry.startsWith(DIRECTORY)
+        && entry.indexOf('/', DIRECTORY.length()) < 0
+        && entry.endsWith(suffix)
+        && entry.length() > DIRECTORY.length() + suffix.length();
+  }
+
+  private static URI toUri(URL url) {
+    try {
+      return url.toURI();
+    } catch (URISyntaxException e) {
+      throw new IllegalArgumentException(url.toString(), e);
+    }
+  }
+}

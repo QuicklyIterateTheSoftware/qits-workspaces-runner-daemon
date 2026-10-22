@@ -50,9 +50,15 @@
              any other released pin. -->
         <qits.workspaces-golden-masters.version>2026.1022.75919</qits.workspaces-golden-masters.version>
 
-        <!-- pact-jvm, test scope only, at qits-workspaces-service's version: the consumer half
-             qits-pact-consumer brings, which ServiceFramesConsumerPactTest's message pact is built
-             with, managed here so the core under it is one version. -->
+        <!-- qits-workspaces-service's consumer message pact against this daemon (qits-950, A2):
+             pacts/qits-workspaces-service_qits-workspaces-runner-daemon.json, the frames the runner
+             sends, which RunnerFramesProviderPactTest verifies against the real runner. Test scope;
+             moved by the maintenance bump when the service releases a changed pact. -->
+        <qits.workspaces-service-pacts-qits-workspaces-runner-daemon.version>2026.1022.75919</qits.workspaces-service-pacts-qits-workspaces-runner-daemon.version>
+
+        <!-- pact-jvm, test scope only, at qits-workspaces-service's version: the provider half
+             (RunnerFramesProviderPactTest) and the consumer half qits-pact-consumer brings, managed
+             together so the core under both is one version. -->
         <pact-jvm.version>4.7.5</pact-jvm.version>
 
         <!-- qits-observability's LOG_EXPORT row needs "an empty telemetry buffer" recorded, which
@@ -126,7 +132,19 @@
                 <version>${qits.workspaces-golden-masters.version}</version>
             </dependency>
             <dependency>
+                <groupId>eu.wohlben.qits</groupId>
+                <artifactId>qits-workspaces-service-pacts-qits-workspaces-runner-daemon</artifactId>
+                <version>${qits.workspaces-service-pacts-qits-workspaces-runner-daemon.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
                 <groupId>au.com.dius.pact.consumer</groupId>
+                <artifactId>junit5</artifactId>
+                <version>${pact-jvm.version}</version>
+                <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>au.com.dius.pact.provider</groupId>
                 <artifactId>junit5</artifactId>
                 <version>${pact-jvm.version}</version>
                 <scope>test</scope>

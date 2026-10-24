@@ -58,6 +58,7 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Clock;
 import java.time.Duration;
@@ -424,6 +425,33 @@ class WorkspacesRunnerTest {
                 .equals(
                     List.of(new HeldContainer(1, true, "h1"), new HeldContainer(2, false, "h2"))));
     assertEquals(1, host.all(Exited.class).size(), "an exit is said once");
+  }
+
+  @Test
+  void anExitRestagedWhileTheWatchLooksIsSaidOnce() throws Exception {
+    seen(1, "running", 0, "h1");
+    seen(2, "running", 0, "h2");
+    ackWith(2, 1);
+    start("t");
+    host.await(Hello.class);
+    awaitTrue(() -> runner.session().held().equals(List.of("1", "2")));
+
+    // A row the watch keeps re-reading as running the whole time: with the old truncate-then-write
+    // answerFor, a watch pass landing mid-restage could read an empty inspect answer, miss row 1
+    // and release it (qits-1573). The atomic restage in seen() never leaves that window open.
+    for (int i = 0; i < 50; i++) {
+      seen(1, "running", 0, "h1");
+      assertTrue(runner.session().held().contains("1"), "row 1 was dropped on restage " + i);
+    }
+
+    seen(2, "exited", 137, "h2");
+    assertEquals(new Exited(2, 137), host.await(Exited.class));
+    host.await(Reserve.class);
+    awaitTrue(() -> runner.session().held().equals(List.of("1")));
+    assertEquals(1, host.all(Exited.class).size(), "an exit is said once");
+    assertTrue(
+        host.all(Exited.class).stream().noneMatch(e -> e.rowId() == 1),
+        "row 1 never exited: " + host.all(Exited.class));
   }
 
   // ---- the estate ----------------------------------------------------------------------------------
@@ -1640,21 +1668,50 @@ class WorkspacesRunnerTest {
     return "qits-workspaces-runner-ws-" + rowId + "-r1";
   }
 
-  /** The row's container on the node, as docker's inspect answers it from now on. */
+  /**
+   * The row's container on the node, as docker's inspect answers it from now on. A first call
+   * stages the container itself; a later call restages only the inspect answer, which it writes
+   * by rename (qits-1573) rather than {@code docker.answerFor}'s truncate-then-write, so the 100
+   * ms exit watch forked mid-restage never reads a half-written {@code .out} and silently drops
+   * the row.
+   */
   private void seen(long rowId, String status, int exitCode, String specHash) throws Exception {
-    docker.container(
-        ws(rowId),
-        Map.of(
-            "qits.workspaces.runner",
-            RUNNER_ID,
-            "qits.workspaces.runner.workspace",
-            Long.toString(rowId)));
-    docker.answerFor(
-        "inspect",
-        ws(rowId),
-        0,
-        "c" + rowId + "|" + status + "|" + exitCode + "|" + rowId + "|" + specHash + "\n",
-        "");
+    Path labels =
+        docker.dir().resolve("state").resolve("containers").resolve(ws(rowId)).resolve("labels");
+    if (!Files.exists(labels)) {
+      docker.container(
+          ws(rowId),
+          Map.of(
+              "qits.workspaces.runner",
+              RUNNER_ID,
+              "qits.workspaces.runner.workspace",
+              Long.toString(rowId)));
+    }
+    Path answers = docker.dir().resolve("answers");
+    String key = "inspect+" + safe(ws(rowId));
+    String line = "c" + rowId + "|" + status + "|" + exitCode + "|" + rowId + "|" + specHash + "\n";
+    writeAtomically(answers.resolve(key + ".code"), "0");
+    writeAtomically(answers.resolve(key + ".err"), "");
+    writeAtomically(answers.resolve(key + ".out"), line);
+  }
+
+  /**
+   * Write {@code content} to {@code target} through a temp file in the same directory and an
+   * atomic rename, so a reader of {@code target} always sees either the old content or the new
+   * one, never a truncated file (qits-1573).
+   */
+  private static void writeAtomically(Path target, String content) throws Exception {
+    Path tmp = Files.createTempFile(target.getParent(), ".tmp-", null);
+    Files.writeString(tmp, content, StandardCharsets.UTF_8);
+    Files.move(tmp, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+  }
+
+  /**
+   * {@code FakeDocker}'s own answer-key sanitising, mirrored so {@link #seen} can key the files it
+   * restages without going through {@code answerFor}'s truncating write.
+   */
+  private static String safe(String object) {
+    return object.replaceAll("[^A-Za-z0-9._-]", "_");
   }
 
   /**
